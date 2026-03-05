@@ -83,13 +83,10 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Compile the OCCT foundation and modeling modules as static libraries via Emscripten.
 
-- [ ] 2a: Add OCCT source compilation to CMakeLists.txt. Start with just TKernel + TKMath. These are the base modules with the most platform-specific code (threading, file I/O, memory management). Getting these to compile first validates our platform stubs.
-- [ ] 2b: Create `kicad-drc-wasm/stubs/occt/` directory with platform stubs for Emscripten:
-  - `OSD_Path.cxx` stub (file path operations)
-  - `OSD_Process.cxx` stub (process management)
-  - `OSD_SharedLibrary.cxx` stub (dynamic loading, not needed in WASM)
-  - Any other platform-specific `.cxx` files that fail compilation
-  - Reference: opencascade.js patches at `node_modules/opencascade.js/` for known issues
+- [x] 2a: Add OCCT source compilation to CMakeLists.txt. Start with just TKernel + TKMath. These are the base modules with the most platform-specific code (threading, file I/O, memory management). Getting these to compile first validates our platform stubs.
+- [x] 2b: Create `kicad-drc-wasm/stubs/occt/` directory with platform stubs for Emscripten:
+  - NOT NEEDED: OCCT 7.6.3 has native `__EMSCRIPTEN__` support in OSD, Standard, etc.
+  - Only fix required: `-U__linux__` in OCCT compile options to prevent conflict with global KiCad define
 - [ ] 2c: Compile TKG2d, TKG3d, TKGeomBase, TKBRep (modeling data modules)
 - [ ] 2d: Compile TKGeomAlgo, TKTopAlgo, TKShHealing (modeling algorithm modules)
 - [ ] 2e: Compile TKBool, TKBO, TKPrim, TKFillet (boolean operations + primitives)

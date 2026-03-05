@@ -108,6 +108,9 @@ if(EMSCRIPTEN)
     # (many KiCad headers assume wxString is available)
     set(KICAD_FORCE_INCLUDE_FLAGS -include ${WX_STUB_DIR}/wx/string.h)
 
+    # ── OCCT 7.6.3 static libraries (for STEP export) ───────────────────────
+    include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/occt-emscripten.cmake)
+
     # ── Thirdparty libraries ────────────────────────────────────────────────
 
     # Clipper2

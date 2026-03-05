@@ -10,7 +10,9 @@
 - 1d: Tested OCCT header compilation with emcc — both basic (gp_Pnt, BRepPrimAPI) and STEP (STEPCAFControl_Writer, XCAFApp_Application, XCAFDoc_*) headers compile cleanly with em++ -std=c++17 -fexceptions
 
 ### Stage 2: Compile OCCT Core Modules to WASM Static Libraries
-- (not started)
+- 2a: Added `include(thirdparty/occt-emscripten.cmake)` to CMakeLists.txt EMSCRIPTEN section
+- 2a: Fixed OSD_signal.cxx FPE errors: global `__linux__` define clashed with OCCT's platform detection; added `-U__linux__` to OCCT toolkit compile options
+- 2a: TKernel compiled (4.4MB .a), TKMath compiled (8.4MB .a) — both clean, only deprecation warnings
 
 ### Stage 3: Compile OCCT STEP I/O and Application Framework Modules
 - (not started)

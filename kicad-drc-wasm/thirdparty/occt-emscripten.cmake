@@ -85,6 +85,9 @@ function(occt_add_toolkit TOOLKIT_NAME)
     target_include_directories(${TOOLKIT_NAME} PUBLIC ${OCCT_INCLUDE_DIRS})
     target_compile_definitions(${TOOLKIT_NAME} PRIVATE ${OCCT_COMPILE_DEFS})
     target_compile_options(${TOOLKIT_NAME} PRIVATE
+        # Undo the global __linux__ define that KiCad needs — OCCT should use its
+        # own __EMSCRIPTEN__ paths for platform-specific code (signal, FPE, etc.)
+        -U__linux__
         -Wno-deprecated-declarations
         -Wno-unused-variable
         -Wno-unused-function
