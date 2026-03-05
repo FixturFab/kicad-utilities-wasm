@@ -287,15 +287,15 @@ writer.Write("output.step");
 **Goal**: Boolean-cut drill holes from the board body.
 
 **Tasks**:
-- [ ] 4a. Implement cylinder creation for each hole:
+- [x] 4a. Implement cylinder creation for each hole:
   - `BRepPrimAPI_MakeCylinder` with hole radius and full board height
   - Position cylinder at hole center using `gp_Ax2` (axis at hole x,y, direction along Z)
   - Handle blind/buried vias: cylinder height matches layer span, not full board
-- [ ] 4b. Implement boolean subtraction:
+- [x] 4b. Implement boolean subtraction:
   - `BRepAlgoAPI_Cut` to subtract each cylinder from board body
   - Process holes in batches to avoid performance issues
   - Fuse all hole cylinders first with `BRepAlgoAPI_Fuse`, then single cut operation
-- [ ] 4c. Update test to verify:
+- [x] 4c. Update test to verify:
   - Board body has holes after boolean cut
   - STEP file size increases (more geometry)
 
@@ -317,9 +317,9 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
 ```
 
 **Success Criteria**:
-- [ ] Holes are cut from board body
-- [ ] STEP file correctly shows through-holes
-- [ ] Test passes
+- [x] Holes are cut from board body
+- [x] STEP file correctly shows through-holes
+- [x] Test passes
 
 ---
 
@@ -508,7 +508,7 @@ After each stage:
 - [x] **Stage 1**: Board outline + stackup + components extracted as JSON
 - [x] **Stage 2**: Copper polygons + drill holes in JSON
 - [x] **Stage 3**: Board body STEP file generated
-- [ ] **Stage 4**: Drill holes cut from board
+- [x] **Stage 4**: Drill holes cut from board
 - [ ] **Stage 5**: Copper layers added
 - [ ] **Stage 6**: Component models placed
 - [ ] **Stage 7**: Public API complete, end-to-end test passes

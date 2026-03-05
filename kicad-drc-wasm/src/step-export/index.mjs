@@ -25,5 +25,5 @@ export async function exportPcbToStep(geometryJson, options = {}) {
   }
 
   const builder = new StepBuilder(ocInstance, geometryJson);
-  return builder.buildAndExport();
+  return builder.buildAndExport(options);
 }

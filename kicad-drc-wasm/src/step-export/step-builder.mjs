@@ -156,10 +156,71 @@ export class StepBuilder {
   }
 
   /**
-   * Build the board body and export as STEP.
+   * Create a cylinder solid for a drill hole.
+   * The cylinder spans from z_top to z_bottom along Z axis.
    */
-  buildAndExport() {
-    const boardBody = this.buildBoardBody();
-    return this.writeStep(boardBody);
+  buildHoleCylinder(x, y, radius, z_top, z_bottom) {
+    const oc = this.oc;
+    const height = z_top - z_bottom;
+    const axis = new oc.gp_Ax2_3(
+      new oc.gp_Pnt_3(x, y, z_bottom),
+      new oc.gp_Dir_4(0, 0, 1)
+    );
+    const cyl = new oc.BRepPrimAPI_MakeCylinder_3(axis, radius, height);
+    return cyl.Shape();
+  }
+
+  /**
+   * Cut drill holes from the board body using boolean subtraction.
+   * Fuses all hole cylinders first, then does a single cut operation.
+   */
+  cutDrillHoles(boardShape) {
+    const oc = this.oc;
+    const holes = this.geometry.holes;
+
+    if (!holes || holes.length === 0) {
+      return boardShape;
+    }
+
+    const thickness = this.geometry.board.thickness_mm || 1.6;
+    // Board is extruded from z=0 downward to z=-thickness
+    const z_top = 0.1;  // slightly above top surface for clean cut
+    const z_bottom = -(thickness + 0.1);  // slightly below bottom
+
+    // Build cylinder for each hole
+    const cylinders = [];
+    for (const hole of holes) {
+      const radius = hole.diameter_mm / 2;
+      if (radius <= 0) continue;
+      cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
+    }
+
+    if (cylinders.length === 0) {
+      return boardShape;
+    }
+
+    // Fuse all cylinders into one compound shape
+    let fusedHoles = cylinders[0];
+    for (let i = 1; i < cylinders.length; i++) {
+      const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+      fusedHoles = fuse.Shape();
+    }
+
+    // Single boolean cut: board minus all holes
+    const cut = new oc.BRepAlgoAPI_Cut_3(boardShape, fusedHoles);
+    return cut.Shape();
+  }
+
+  /**
+   * Build the board body and export as STEP.
+   * Optionally cuts drill holes from the board.
+   */
+  buildAndExport(options = {}) {
+    const includeDrillHoles = options.includeDrillHoles !== false;
+    let shape = this.buildBoardBody();
+    if (includeDrillHoles) {
+      shape = this.cutDrillHoles(shape);
+    }
+    return this.writeStep(shape);
   }
 }

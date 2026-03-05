@@ -40,3 +40,17 @@
 - ERC regression: 155/155 pass
 - Geometry regression: 72/72 pass
 - Stage 3 COMPLETE
+
+### Stage 4 - TypeScript: Drill Holes
+- 4a: Implemented buildHoleCylinder() in step-builder.mjs (BRepPrimAPI_MakeCylinder_2 with gp_Ax2_3)
+- 4b: Implemented cutDrillHoles() with fuse-then-cut strategy (BRepAlgoAPI_Fuse + BRepAlgoAPI_Cut)
+- Updated buildAndExport() to accept options.includeDrillHoles (default: true)
+- Updated index.mjs to pass options through to builder
+- Verified existing Stage 3 test still passes (SMD-only board, 0 holes, 13 assertions)
+- Fixed constructor names: BRepPrimAPI_MakeCylinder_3 (not _2), BRepAlgoAPI_Cut_3/Fuse_3 take 2 args (no Message_ProgressRange)
+- 4c: Updated test-step-export.mjs with Stage 4 drill holes section (synthetic geometry with 3 holes)
+- Test validates: STEP size increases with holes, CYLINDRICAL_SURFACE present, 0-hole boards still work
+- Test passes: 23 assertions (13 Stage 3 + 10 Stage 4)
+- Geometry regression: 72/72 pass
+- ERC regression: 155/155 pass
+- Stage 4 COMPLETE
