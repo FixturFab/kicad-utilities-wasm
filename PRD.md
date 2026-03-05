@@ -304,26 +304,26 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Final polish, commit everything, push.
 
 **Tasks**:
-- [ ] 7a. Test all four pages work:
+- [x] 7a. Test all four pages work:
   - index.html — hub loads, nav works, links work
   - drc.html — module loads, sample PCB runs DRC, violations displayed
   - erc.html — module loads, sample schematic runs ERC, violations by sheet
   - step.html — module loads, geometry extracted, STEP built, 3D preview shows, download works
-- [ ] 7b. Fix any issues found
-- [ ] 7c. Commit all changes:
+- [x] 7b. Fix any issues found
+- [x] 7c. Commit all changes:
   ```bash
   git add public/ docs/plans/
   git commit -m "feat(demo): GitLab Pages with DRC, ERC, and STEP 3D preview demos"
   ```
-- [ ] 7d. Push:
+- [x] 7d. Push:
   ```bash
   git push origin master
   ```
 
 **Success Criteria**:
-- [ ] All pages functional
-- [ ] Committed and pushed
-- [ ] GitLab Pages will deploy on push
+- [x] All pages functional
+- [x] Committed and pushed
+- [x] GitLab Pages will deploy on push
 
 ---
 
@@ -345,4 +345,4 @@ After push, GitLab Pages deploys automatically. URLs:
 - [x] **Stage 4**: WASM binaries updated
 - [x] **Stage 5**: STEP page layout + geometry
 - [x] **Stage 6**: STEP 3D preview works
-- [ ] **Stage 7**: All polished, committed, pushed
+- [x] **Stage 7**: All polished, committed, pushed
