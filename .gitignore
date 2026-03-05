@@ -27,6 +27,9 @@ output/
 # Emscripten SDK (large, downloaded)
 emsdk/
 
+# OCCT source (downloaded, not vendored)
+kicad-drc-wasm/thirdparty/occt-7.6.3/
+
 # Emscripten compiled output (generated)
 emscripten-test/test.mjs
 emscripten-test/test.wasm
@@ -38,6 +41,9 @@ kicad-drc-wasm/build-wasm*/
 *.o
 *.so
 *.a
+
+# Node modules
+kicad-drc-wasm/node_modules/
 
 # OS junk
 .DS_Store

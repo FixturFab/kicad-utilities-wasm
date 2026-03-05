@@ -1,348 +1,331 @@
-# GitLab Demo Pages — DRC + ERC + STEP Export
+# KiCad Native STEP Export via WASM - Product Requirements Document
 
 ## Overview
 
-Multi-page GitLab Pages demo showcasing all three KiCad WASM features: DRC, ERC, and STEP Export with 3D preview.
+**Project Goal**: Compile KiCad's native STEP exporter (`exporter_step.cpp` + `step_pcb_model.cpp`) to WASM as a monolith alongside OCCT 7.6.3, achieving exact parity with `kicad-cli pcb export step`.
 
-**Architecture**: Four HTML pages in `public/` sharing a nav bar and CSS design system. The STEP page uses opencascade.js for STEP construction + tessellation, three.js (CDN) for 3D rendering.
+**Why**: The previous approach (JS reimplementation via `opencascade.js`) cannot achieve parity:
+- opencascade.js ships OCCT 7.4.0p1, but KiCad 8.0.9 requires OCCT 7.5.0+ (hard-enforced)
+- API breaks between 7.4 and 7.6: `Message_Printer` signatures, color spaces, `BRepTools::Write()`
+- JS reimplementation introduces subtle geometry bugs that are hard to detect and fix
+- Boolean operations fail silently in browser due to broken C++ exception handling
+- Output is 2.5-4.2x larger than native due to missing XCAFDoc assembly hierarchy
 
-**Existing demo**: `public/index.html` is a single-page DRC-only demo (720 lines). The WASM binary in `public/` is outdated (DRC-only, 7.3MB). Current build at `kicad-drc-wasm/build-wasm-erc/` has DRC+ERC+geometry APIs (9.6MB).
-
----
-
-## Key Files
-
-| File | Purpose |
-|------|---------|
-| `public/index.html` | Current DRC demo → rewrite as hub page |
-| `public/shared.css` | New — shared styles extracted from index.html |
-| `public/nav.js` | New — shared nav bar injected via JS |
-| `public/drc.html` | New — DRC demo (moved from index.html) |
-| `public/erc.html` | New — ERC demo |
-| `public/step.html` | New — STEP export with 3D preview |
-| `public/kicad_drc.mjs` | Update from build-wasm-erc/ |
-| `public/kicad_drc.wasm` | Update from build-wasm-erc/ |
-| `public/opencascade.wasm.js` | Copy from node_modules/opencascade.js/dist/ |
-| `public/opencascade.wasm.wasm` | Copy from node_modules/opencascade.js/dist/ (~63MB) |
-| `public/sample.kicad_sch` | Copy from samples/erc/with_errors.kicad_sch |
-| `public/sample.kicad_pcb` | Already exists |
-| `public/coi-serviceworker.js` | Already exists (SharedArrayBuffer) |
-| `public/_headers` | Already exists (COOP/COEP) |
-
-## Design Tokens (from existing demo)
-
-```css
---primary: #2563eb;  --primary-dark: #1d4ed8;
---success: #16a34a;  --warning: #ca8a04;  --error: #dc2626;
---bg: #f8fafc;  --card: #ffffff;  --text: #1e293b;
---text-muted: #64748b;  --border: #e2e8f0;
-```
-
-## WASM API Reference
+**Architecture**: Single WASM binary containing KiCad's PCB engine + OCCT 7.6.3 + KiCad's native STEP exporter. The BOARD is already loaded in memory (for DRC/ERC). We add `_kicad_export_step()` that calls `EXPORTER_STEP::Export()` directly.
 
 ```
-DRC:  _kicad_load_pcb(ptr, 0), _kicad_run_drc(), _kicad_get_drc_results(), _kicad_cleanup()
-ERC:  _kicad_load_schematic(ptr, 0), _kicad_run_erc(), _kicad_get_erc_results(), _kicad_cleanup_schematic()
-STEP: _kicad_load_pcb(ptr, 0), _kicad_get_pcb_geometry(), _kicad_cleanup()
-      + opencascade.js for STEP construction + tessellation
-      + three.js for 3D rendering
+KiCad WASM (existing: DRC + ERC + geometry)
+    + OCCT 7.6.3 (compiled from source via Emscripten)
+    + KiCad STEP exporter (exporter_step.cpp, step_pcb_model.cpp)
+    = Single WASM binary with exact native parity
 ```
 
-## ERC JSON Structure (differs from DRC)
-
-```json
-{
-  "sheets": [
-    {
-      "path": "/",
-      "uuid_path": "/uuid",
-      "violations": [
-        { "type": "pin_not_connected", "severity": "error", "description": "...", "items": [...] }
-      ]
-    }
-  ]
-}
-```
-
-Note: ERC groups violations by sheet. DRC has flat `violations[]` array.
-
-## STEP Page — Browser-Adapted Code
-
-The existing `kicad-drc-wasm/src/step-export/step-builder.mjs` uses Node.js APIs (`createRequire`, `readFileSync`, `fs`). For the browser, inline adapted versions of:
-
-- `initOpenCascade()` — use `import('./opencascade.wasm.js')` instead of `require()`
-- `StepBuilder.buildWire()` — unchanged
-- `StepBuilder.buildBoardBody()` — unchanged
-- `StepBuilder.cutDrillHoles()` — unchanged
-- `StepBuilder.buildCopperLayerSolids()` — unchanged
-- `StepBuilder.writeStep()` — simplified, use `oc.FS` only (no Node.js fs fallback)
-
-Skip component model loading for the demo (would need user to upload .step files).
-
-## Tessellation for 3D Preview
-
-After building the STEP shape, tessellate with opencascade.js and render with three.js:
-
-```javascript
-// Tessellate
-new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false);
-
-// Extract triangles from each face
-const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
-while (explorer.More()) {
-    const face = oc.TopoDS.Face_1(explorer.Current());
-    const location = new oc.TopLoc_Location_1();
-    const triangulation = oc.BRep_Tool.Triangulation(face, location);
-    if (!triangulation.IsNull()) {
-        const tri = triangulation.get();
-        // tri.NbNodes(), tri.Node(i) → vertices
-        // tri.NbTriangles(), tri.Triangle(i) → indices
-        // face.Orientation_1() → check if reversed
-    }
-    explorer.Next();
-}
-```
-
-three.js setup:
-```javascript
-// Import via import map (no bundler)
-// <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/" } }</script>
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-// Scene: dark background (#1e293b), ambient + 2 directional lights
-// Material: green PCB (0x2d8a4e), MeshPhongMaterial
-// Camera: PerspectiveCamera, fit to bounding box
-// Controls: OrbitControls with damping
-```
+**Target Environments**: Node.js and Browser (same as DRC/ERC)
 
 ---
 
-## Stages
+## Reference Code
 
-### Stage 1: Shared CSS + Nav Bar + Hub Page
+| Source File | Purpose |
+|-------------|---------|
+| `kicad-src/pcbnew/exporters/step/exporter_step.cpp` | Main export logic (1,391 lines) |
+| `kicad-src/pcbnew/exporters/step/step_pcb_model.cpp` | 3D model construction via OCCT (4,302 lines) |
+| `kicad-src/pcbnew/exporters/step/exporter_step.h` | EXPORTER_STEP class + EXPORTER_STEP_PARAMS |
+| `kicad-src/pcbnew/exporters/step/step_pcb_model.h` | STEP_PCB_MODEL class (401 lines) |
+| `kicad-src/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx` | Custom OCCT assembly graph (270 lines) |
+| `kicad-src/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.hxx` | Assembly graph header (220 lines) |
+| `kicad-src/pcbnew/exporters/step/kicad3d_info.cpp` | 3D model info struct (90 lines) |
+| `kicad-src/common/jobs/job_export_pcb_3d.h` | EXPORTER_STEP_PARAMS class definition |
+| `kicad-drc-wasm/src/api.cpp` | Existing WASM API (integration point) |
+| `kicad-drc-wasm/CMakeLists.txt` | Existing WASM build configuration |
 
-**Goal**: Extract shared styles, create nav bar component, rewrite index.html as hub.
+**OCCT on system**: v7.6.3, headers at `/usr/include/opencascade/` (7,543 headers), 50 libraries at `/usr/lib/x86_64-linux-gnu/libTK*.so`, CMake config at `/usr/lib/x86_64-linux-gnu/cmake/opencascade/`.
 
-**Tasks**:
-- [x] 1a. Create `public/shared.css` — extract all CSS from current `public/index.html` `<style>` block, add nav bar styles:
-  ```css
-  .nav { display: flex; gap: 0; background: var(--card); border-bottom: 1px solid var(--border); margin-bottom: 2rem; border-radius: 12px 12px 0 0; overflow: hidden; }
-  .nav a { padding: 0.75rem 1.5rem; text-decoration: none; color: var(--text-muted); font-weight: 500; font-size: 0.95rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
-  .nav a:hover { color: var(--text); background: var(--bg); }
-  .nav a.active { color: var(--primary); border-bottom-color: var(--primary); }
-  ```
-- [x] 1b. Create `public/nav.js` — injects nav bar at top of `.container`, highlights active page. Pages: Overview (index.html), DRC (drc.html), ERC (erc.html), STEP Export (step.html).
-- [x] 1c. Rewrite `public/index.html` as hub page:
-  - Links to `shared.css`, loads `nav.js`
-  - Title: "KiCad WASM Tools"
-  - Subtitle: "PCB and schematic validation in the browser, powered by WebAssembly"
-  - Three cards linking to DRC, ERC, STEP Export with icons and descriptions
-  - Does NOT load any WASM module
-- [x] 1d. Verify index.html loads correctly (no JS errors, nav renders)
-
-**Success Criteria**:
-- [x] `shared.css` contains all design tokens and component styles
-- [x] `nav.js` renders nav with 4 links, highlights current page
-- [x] `index.html` is a clean hub with no WASM loading
+**OCCT version-conditional code in exporter** (11 occurrences):
+- `OCC_VERSION_HEX < 0x070500`: Message_Printer old API (we use 7.6.3, takes new path)
+- `OCC_VERSION_HEX >= 0x070600`: BRepTools::Write extended signature (we take this path)
+- `OCC_VERSION_HEX >= 0x070700`: VrmlAPI_CafReader, RWPly_CafWriter (we skip, 7.6 < 7.7)
+- `OCC_VERSION_HEX > 0x070101`: UpdateAssemblies (we take this path)
 
 ---
 
-### Stage 2: DRC Demo Page
+## Stage 1: Download and Configure OCCT 7.6.3 Source for Emscripten
 
-**Goal**: Move existing DRC demo to `drc.html` with shared nav.
+**Goal**: Get OCCT 7.6.3 source tree, configure a minimal Emscripten build with only the modules needed for STEP export.
 
-**Tasks**:
-- [x] 2a. Create `public/drc.html`:
-  - Links to `shared.css`, loads `nav.js`
-  - Title: "DRC Check — KiCad WASM Tools"
-  - All DRC HTML structure from current index.html (drop zone, buttons, results, violations list)
-  - All DRC JavaScript from current index.html (loadModule, handleFile, runDRC, displayResults, escapeHtml)
-  - Module status shows "Loading WASM module (9.6 MB)..."
-  - Uses `./kicad_drc.mjs` for module import, `./` + path for locateFile
-- [x] 2b. Verify DRC works: load page, click "Use Sample PCB", run DRC, see violations
-
-**Success Criteria**:
-- [x] DRC page loads module, runs DRC on sample PCB, displays violations
-- [x] Nav bar present and highlights "DRC"
-
----
-
-### Stage 3: ERC Demo Page
-
-**Goal**: Create ERC demo page.
-
-**Tasks**:
-- [x] 3a. Copy sample schematic: `cp samples/erc/with_errors.kicad_sch public/sample.kicad_sch`
-- [x] 3b. Create `public/erc.html`:
-  - Links to `shared.css`, loads `nav.js`
-  - Title: "ERC Check — KiCad WASM Tools"
-  - Same layout as DRC but accepts `.kicad_sch` files
-  - "Use Sample Schematic" button loads `sample.kicad_sch`
-  - Uses ERC WASM API: `_kicad_load_schematic`, `_kicad_run_erc`, `_kicad_get_erc_results`, `_kicad_cleanup_schematic`
-  - Results grouped by sheet: render sheet path header, then violations under each sheet
-  - Violation display same card format as DRC (severity indicator, type, description, items with positions)
-  - "Show raw JSON" toggle like DRC page
-- [x] 3c. Verify ERC works: load page, use sample schematic, run ERC, see violations grouped by sheet
-
-**Success Criteria**:
-- [x] ERC page loads module, runs ERC on sample schematic, displays violations by sheet
-- [x] Nav bar present and highlights "ERC"
-
----
-
-### Stage 4: Update WASM Binary + Copy opencascade.js
-
-**Goal**: Update public/ with current WASM build and add opencascade.js dist files.
-
-**Tasks**:
-- [x] 4a. Copy updated WASM:
-  ```bash
-  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.mjs public/
-  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.wasm public/
-  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.worker.mjs public/ 2>/dev/null || true
-  ```
-- [x] 4b. Copy opencascade.js dist:
-  ```bash
-  cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.js public/
-  cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.wasm public/
-  ```
-- [x] 4c. Verify sizes: kicad_drc.wasm ~9.6MB, opencascade.wasm.wasm ~63MB
-- [x] 4d. Verify DRC page still works with updated WASM binary
-- [x] 4e. Verify ERC page works with updated WASM binary
-
-**Success Criteria**:
-- [x] Updated WASM binary in public/
-- [x] opencascade.js dist files in public/
-- [x] DRC and ERC pages still functional
-
----
-
-### Stage 5: STEP Page — Layout + Geometry Extraction
-
-**Goal**: Create STEP page with file drop and geometry stats display.
-
-**Tasks**:
-- [x] 5a. Create `public/step.html` with layout:
-  - Links to `shared.css`, loads `nav.js`
-  - Title: "STEP Export — KiCad WASM Tools"
-  - Two status bars: "KiCad WASM" (loads immediately) + "opencascade.js" (shows "will load on demand")
-  - Drop zone for `.kicad_pcb` files, "Use Sample PCB" button
-  - Stats panel (hidden initially): board dimensions, thickness, copper layers, holes, components
-  - 3D viewer canvas (hidden initially): 500px height, dark background
-  - Action buttons: "Generate STEP" (hidden until file loaded), "Download .step" (hidden until built)
-- [x] 5b. Implement KiCad WASM loading + geometry extraction:
-  - Same WASM loading pattern as DRC/ERC pages
-  - On file load: `_kicad_load_pcb()` then `_kicad_get_pcb_geometry()`
-  - Parse geometry JSON, show stats (board W x H mm, thickness, N copper layers, N holes, N components)
-  - Show "Generate STEP" button after geometry extracted
-- [x] 5c. Verify: drop sample.kicad_pcb, stats populate correctly
-
-**Success Criteria**:
-- [x] STEP page loads, accepts .kicad_pcb files
-- [x] Geometry stats display correctly
-- [x] "Generate STEP" button appears after file loaded
-
----
-
-### Stage 6: STEP Page — 3D Construction + Preview
-
-**Goal**: Add opencascade.js STEP construction and three.js 3D preview.
-
-**Tasks**:
-- [x] 6a. Add three.js import map to step.html:
-  ```html
-  <script type="importmap">
-  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/" } }
-  </script>
-  ```
-- [x] 6b. Implement browser-adapted `initOpenCascade()`:
-  - Import `./opencascade.wasm.js`
-  - `locateFile: (path) => './' + path`
-  - Update status bar during loading
-- [x] 6c. Implement browser-adapted StepBuilder (inline in step.html):
-  - `buildWire(vertices, z)` — same as step-builder.mjs
-  - `buildBoardBody()` — same
-  - `cutDrillHoles()` — same (fuse-then-cut)
-  - `buildCopperLayerSolids()` — same (with degenerate edge skip)
-  - `writeStep(shape)` — simplified for browser: write to `oc.FS`, read back, return Uint8Array
-  - Skip component model loading for demo
-- [x] 6d. Implement tessellation function:
-  - `BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false)` for tessellation
-  - `TopExp_Explorer` to iterate faces
-  - Extract vertices via `tri.Node(i)`, triangles via `tri.Triangle(i)`
-  - Handle face orientation (reversed faces swap winding order)
-- [x] 6e. Implement three.js 3D viewer:
-  - Scene with dark background (#1e293b)
-  - AmbientLight + 2 DirectionalLights
-  - MeshPhongMaterial with green PCB color (0x2d8a4e)
-  - PerspectiveCamera, fit to bounding box
-  - OrbitControls with damping
-  - Resize handler for canvas
-  - Hint text: "Click and drag to rotate"
-- [x] 6f. Connect "Generate STEP" button:
-  - Lazy-load opencascade.js on first click
-  - Build shape (board body + holes + copper)
-  - Tessellate + display in viewer
-  - Store STEP data for download
-  - Show "Download .step" button
-- [x] 6g. Implement download button:
-  - Create Blob from STEP Uint8Array
-  - Trigger download as `<filename>.step`
-- [x] 6h. Verify: drop sample.kicad_pcb, click Generate STEP, 3D preview shows, download works
-
-**Success Criteria**:
-- [x] opencascade.js loads lazily on "Generate STEP" click
-- [x] 3D preview shows green PCB board with holes and copper
-- [x] OrbitControls work (rotate, zoom, pan)
-- [x] Download produces valid .step file (starts with ISO-10303-21)
-
----
-
-### Stage 7: Polish + Commit + Push
-
-**Goal**: Final polish, commit everything, push.
-
-**Tasks**:
-- [x] 7a. Test all four pages work:
-  - index.html — hub loads, nav works, links work
-  - drc.html — module loads, sample PCB runs DRC, violations displayed
-  - erc.html — module loads, sample schematic runs ERC, violations by sheet
-  - step.html — module loads, geometry extracted, STEP built, 3D preview shows, download works
-- [x] 7b. Fix any issues found
-- [x] 7c. Commit all changes:
-  ```bash
-  git add public/ docs/plans/
-  git commit -m "feat(demo): GitLab Pages with DRC, ERC, and STEP 3D preview demos"
-  ```
-- [x] 7d. Push:
-  ```bash
-  git push origin master
+- [x] 1a: Download OCCT 7.6.3 source release to `kicad-drc-wasm/thirdparty/occt-7.6.3/`
+- [ ] 1b: Identify the minimal set of OCCT modules needed. Based on KiCad's `FindOCC.cmake` and the exporter's `#include` directives, we need these OCCT toolkits:
+  - **Foundation**: TKernel, TKMath
+  - **Modeling Data**: TKG2d, TKG3d, TKGeomBase, TKBRep
+  - **Modeling Algorithms**: TKGeomAlgo, TKTopAlgo, TKShHealing, TKBool, TKBO, TKPrim, TKFillet, TKOffset, TKFeat, TKHLR
+  - **Data Exchange**: TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209, TKXSBase, TKIGES, TKXDESTEP, TKXDEIGES, TKRWMesh, TKMesh, TKSTL, TKVRML
+  - **Application Framework**: TKCAF, TKCDF, TKLCAF, TKXCAF, TKBinXCAF, TKBin, TKBinL, TKBinTObj, TKTObj, TKService, TKV3d, TKXMesh
+  - Exclude visualization (TKOpenGl, TKMeshVS), XML persistence (TKXml*), Draw harness
+- [ ] 1c: Create `kicad-drc-wasm/thirdparty/occt-emscripten.cmake` that:
+  - Sets OCCT source root
+  - Defines `BUILD_MODULE_*` variables to enable/disable modules
+  - Sets Emscripten-specific compile flags (`-O3 -flto -fexceptions -pthread`)
+  - Disables platform-specific code (X11, OpenGL, Tcl/Tk)
+  - Stubs out `OSD_Path`, `OSD_Process` platform calls (reference: opencascade.js patches)
+- [ ] 1d: Test that OCCT headers are parseable by Emscripten compiler with a minimal test:
+  ```cpp
+  #include <Standard_Version.hxx>
+  #include <gp_Pnt.hxx>
+  #include <BRepPrimAPI_MakeCylinder.hxx>
+  int main() { return OCC_VERSION_MAJOR; }
   ```
 
-**Success Criteria**:
-- [x] All pages functional
-- [x] Committed and pushed
-- [x] GitLab Pages will deploy on push
+**Verification**: `emcc` compiles the test file without errors against OCCT 7.6.3 headers.
 
 ---
 
-## Verification
+## Stage 2: Compile OCCT Core Modules to WASM Static Libraries
 
-After push, GitLab Pages deploys automatically. URLs:
-- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/` — hub
-- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/drc.html` — DRC
-- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/erc.html` — ERC
-- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/step.html` — STEP Export
+**Goal**: Compile the OCCT foundation and modeling modules as static libraries via Emscripten.
+
+- [ ] 2a: Add OCCT source compilation to CMakeLists.txt. Start with just TKernel + TKMath. These are the base modules with the most platform-specific code (threading, file I/O, memory management). Getting these to compile first validates our platform stubs.
+- [ ] 2b: Create `kicad-drc-wasm/stubs/occt/` directory with platform stubs for Emscripten:
+  - `OSD_Path.cxx` stub (file path operations)
+  - `OSD_Process.cxx` stub (process management)
+  - `OSD_SharedLibrary.cxx` stub (dynamic loading, not needed in WASM)
+  - Any other platform-specific `.cxx` files that fail compilation
+  - Reference: opencascade.js patches at `node_modules/opencascade.js/` for known issues
+- [ ] 2c: Compile TKG2d, TKG3d, TKGeomBase, TKBRep (modeling data modules)
+- [ ] 2d: Compile TKGeomAlgo, TKTopAlgo, TKShHealing (modeling algorithm modules)
+- [ ] 2e: Compile TKBool, TKBO, TKPrim, TKFillet (boolean operations + primitives)
+- [ ] 2f: Validate with a test that creates a cylinder and performs a boolean cut:
+  ```cpp
+  #include <BRepPrimAPI_MakeCylinder.hxx>
+  #include <BRepPrimAPI_MakeBox.hxx>
+  #include <BRepAlgoAPI_Cut.hxx>
+  // Create box, cut hole, verify shape is valid
+  ```
+
+**Verification**: Emscripten produces `.a` static libraries for each toolkit. Test program links and runs under Node.js.
 
 ---
 
-## Checkpoints
+## Stage 3: Compile OCCT STEP I/O and Application Framework Modules
 
-- [x] **Stage 1**: Shared CSS + nav + hub page
-- [x] **Stage 2**: DRC page works
-- [x] **Stage 3**: ERC page works
-- [x] **Stage 4**: WASM binaries updated
-- [x] **Stage 5**: STEP page layout + geometry
-- [x] **Stage 6**: STEP 3D preview works
-- [x] **Stage 7**: All polished, committed, pushed
+**Goal**: Compile the STEP reader/writer and XDE assembly framework modules.
+
+- [ ] 3a: Compile TKXSBase, TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209 (STEP I/O core)
+- [ ] 3b: Compile TKCDF, TKLCAF, TKCAF, TKTObj (application framework)
+- [ ] 3c: Compile TKXCAF, TKXDESTEP (XDE STEP, assembly support with colors/materials)
+- [ ] 3d: Compile remaining needed modules: TKIGES, TKXDEIGES, TKBin, TKBinL, TKBinTObj, TKBinXCAF, TKService, TKV3d, TKRWMesh, TKMesh, TKSTL, TKVRML, TKXMesh, TKOffset, TKFeat, TKHLR
+- [ ] 3e: Validate with a test that writes a STEP file:
+  ```cpp
+  #include <STEPCAFControl_Writer.hxx>
+  #include <BRepPrimAPI_MakeBox.hxx>
+  #include <XCAFApp_Application.hxx>
+  // Create document, add shape, write STEP to virtual FS, read back and verify ISO-10303 header
+  ```
+
+**Verification**: STEP write test produces valid STEP file bytes in Emscripten virtual FS. File starts with `ISO-10303-21`.
+
+---
+
+## Stage 4: Integrate KiCad's STEP Exporter Source Files
+
+**Goal**: Compile KiCad's native STEP exporter files and link them with the OCCT WASM libraries.
+
+- [ ] 4a: Add OCCT include directory to `KICAD_INCLUDE_DIRS` in CMakeLists.txt (WASM section)
+- [ ] 4b: Add KiCad STEP exporter source files to the WASM build:
+  ```cmake
+  set(STEP_EXPORTER_SOURCES
+      ${KICAD_SRC}/pcbnew/exporters/step/exporter_step.cpp
+      ${KICAD_SRC}/pcbnew/exporters/step/step_pcb_model.cpp
+      ${KICAD_SRC}/pcbnew/exporters/step/kicad3d_info.cpp
+      ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
+  )
+  ```
+- [ ] 4c: Handle additional KiCad dependencies the exporter needs that may not be compiled yet:
+  - `filename_resolver.cpp` — 3D model file path resolution
+  - `convert_basic_shapes_to_polygon.cpp` — geometry conversion
+  - `streamwrapper.cpp` — OCCT stream wrapper (at `kicad-src/common/streamwrapper.cpp`)
+  - `exporters/u3d/writer.cpp` — U3D writer (may need stub if only STEP is needed)
+  - `pcb_painter.cpp` — color extraction (may need stub)
+  - Any other missing symbols found during linking
+- [ ] 4d: Add stubs for features we don't need in WASM:
+  - `footprint_library_adapter` — GUI library browser (stub or exclude)
+  - `pcb_barcode` — barcode generation (may need minimal stub)
+  - U3D, PDF, PLY format writers — stub with "not supported in WASM" returns
+  - `plotters/plotters_pslike` — plotting (stub)
+- [ ] 4e: Compile and fix all remaining link errors. The exporter uses these KiCad classes that should already be compiled in pcbcommon_wasm: BOARD, FOOTPRINT, PAD, PCB_TRACK, ZONE, SHAPE_POLY_SET, BOARD_STACKUP, PCB_SHAPE, PCB_TEXTBOX, PCB_TABLE.
+- [ ] 4f: Link OCCT static libraries into the final WASM target:
+  ```cmake
+  target_link_libraries(kicad_drc PRIVATE
+      # ... existing libraries ...
+      # OCCT static libraries
+      TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep
+      TKGeomAlgo TKTopAlgo TKShHealing TKBool TKBO TKPrim TKFillet
+      TKSTEP TKSTEPBase TKSTEPAttr TKSTEP209 TKXSBase
+      TKCDF TKLCAF TKCAF TKTObj TKXCAF TKXDESTEP
+      TKBinXCAF TKBin TKBinL TKBinTObj TKService TKV3d
+      TKRWMesh TKMesh TKSTL TKVRML TKXMesh
+      TKIGES TKXDEIGES TKOffset TKFeat TKHLR
+  )
+  ```
+
+**Verification**: WASM binary compiles and links without errors. Binary size noted. Existing DRC/ERC tests still pass.
+
+---
+
+## Stage 5: Add `_kicad_export_step()` API Function
+
+**Goal**: Expose the STEP export as a C API function in the WASM module, reusing the already-loaded BOARD.
+
+- [ ] 5a: Add the export function to `api.cpp`:
+  ```cpp
+  #include <exporters/step/exporter_step.h>
+
+  extern "C" {
+
+  const char* kicad_export_step(const char* options_json)
+  {
+      if (!g_board)
+          return nullptr;
+
+      // Parse options from JSON (output format, origin, component filtering, etc.)
+      EXPORTER_STEP_PARAMS params;
+      params.m_Format = EXPORTER_STEP_PARAMS::FORMAT::STEP;
+      params.m_ExportBoardBody = true;
+      params.m_ExportComponents = true;
+      // ... parse remaining options from JSON ...
+
+      // Write to virtual FS path
+      wxString outputPath = wxS("/tmp/kicad_wasm_step/output.step");
+      params.m_OutputFile = outputPath;
+
+      // Create reporter, run export
+      EXPORTER_STEP exporter(g_board, params, /* reporter */);
+      exporter.m_outputFile = outputPath;
+      bool ok = exporter.Export();
+
+      // Read STEP file from virtual FS, return as string
+  }
+
+  } // extern "C"
+  ```
+- [ ] 5b: Add `_kicad_export_step` to EXPORTED_FUNCTIONS in CMakeLists.txt link flags
+- [ ] 5c: Add options parsing: accept JSON with fields for export parameters (format, origin, components, tracks, silkscreen, soldermask, etc.) mapping to EXPORTER_STEP_PARAMS fields
+- [ ] 5d: Handle the STEP file output:
+  - Option A: Return the STEP file content as a string (simple, works for STEP text format)
+  - Option B: Write to Emscripten virtual FS and return the path (supports binary formats like GLB)
+  - Implement both: string return for STEP, FS path for binary formats
+- [ ] 5e: Handle 3D model resolution. The exporter calls `FILENAME_RESOLVER` to find `.step`/`.wrl` model files. For WASM:
+  - Accept a model map via the options JSON: `{ "models": { "path/to/model.step": <FS path> } }`
+  - Write models to virtual FS before export
+  - Or: export with `m_BoardOnly = true` initially (no component models), add model support later
+- [ ] 5f: Add TypeScript type declarations to `types/kicad-wasm.d.ts`
+
+**Verification**: `_kicad_export_step` is callable from Node.js. Returns a STEP file string for a loaded PCB.
+
+---
+
+## Stage 6: Parity Testing — Comparison with Native kicad-cli
+
+**Goal**: Verify the WASM STEP output matches native `kicad-cli pcb export step` output.
+
+- [ ] 6a: Create `test/test-step-native-parity.mjs` that:
+  1. Loads a test PCB via WASM (`_kicad_load_pcb`)
+  2. Exports STEP via WASM (`_kicad_export_step`)
+  3. Exports STEP via native `kicad-cli pcb export step` (subprocess)
+  4. Compares outputs
+- [ ] 6b: Comparison levels (from strictest to most lenient):
+  - **Level 1**: Byte-for-byte identical (after normalizing timestamps/file paths)
+  - **Level 2**: Same STEP entities (parse both, compare entity counts and types)
+  - **Level 3**: Same geometry (tessellate both, compare vertex positions within tolerance)
+  - **Level 4**: Same bounding box and volume (coarsest check)
+  - Start with Level 2+3, aspire to Level 1
+- [ ] 6c: Create STEP comparison utility functions:
+  - `normalizeStepFile(content)` — strip timestamps, file paths, whitespace normalization
+  - `parseStepEntities(content)` — extract entity type counts
+  - `compareStepFiles(wasm, native)` — multi-level comparison returning detailed diff
+- [ ] 6d: Test with multiple PCB files:
+  - `samples/parity-test.kicad_pcb` (existing: 50x35mm, PTH, NPTH, vias, SMD, slot)
+  - `public/sample.kicad_pcb` (existing: the demo PCB)
+  - Create a complex test PCB with: zones, arcs, multiple board outlines, many footprints
+- [ ] 6e: Add to CI: `npm run test:step-native-parity`
+
+**Verification**: WASM and native STEP outputs match at Level 2 (same entities) and Level 3 (same geometry within 0.001mm tolerance). Differences documented if any.
+
+---
+
+## Stage 7: Browser Integration and Demo Page Update
+
+**Goal**: Update the browser demo page to use the native STEP export instead of the JS reimplementation.
+
+- [ ] 7a: Update `public/step.html` to call `_kicad_export_step()` instead of the JS StepBuilder
+  - Remove the entire inline StepBuilder class
+  - Remove the opencascade.js dependency (no more 63MB WASM download)
+  - The STEP export now happens inside the existing KiCad WASM module
+- [ ] 7b: Update the Generate STEP button handler:
+  ```javascript
+  async function generateStep() {
+      const optionsJson = JSON.stringify({
+          format: "step",
+          board_only: true,
+          export_board_body: true,
+          export_components: false
+      });
+      const stepContent = Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson]);
+      // Enable download button with stepContent
+  }
+  ```
+- [ ] 7c: Keep the three.js 3D preview (tessellate the STEP output for display)
+- [ ] 7d: Update `package.json` — remove `opencascade.js` dependency
+- [ ] 7e: Update the step-export module (`src/step-export/index.mjs`) to use the native API
+- [ ] 7f: Run all existing tests to verify no regressions
+
+**Verification**: Browser demo exports STEP files using the native exporter. No opencascade.js download. STEP output matches native kicad-cli.
+
+---
+
+## Stage 8: Component 3D Model Support
+
+**Goal**: Enable component 3D model loading in the WASM STEP export.
+
+- [ ] 8a: Design the model resolution API for WASM:
+  ```javascript
+  // Before export, upload model files to virtual FS
+  Module.FS.writeFile('/models/Resistor_SMD.step', modelData);
+  const options = {
+      format: "step",
+      export_components: true,
+      model_search_paths: ["/models/"]
+  };
+  ```
+- [ ] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
+- [ ] 8c: Test with a PCB that has component models
+- [ ] 8d: Add model preloading to the browser demo
+
+**Verification**: STEP export with components matches native kicad-cli output including 3D models.
+
+---
+
+## Build Size Budget
+
+| Component | Estimated Size |
+|-----------|---------------|
+| Current WASM (DRC+ERC) | 9.6 MB |
+| OCCT core (TKernel through TKBool) | ~15-20 MB |
+| OCCT STEP I/O + XDE | ~10-15 MB |
+| KiCad exporter code | ~0.5 MB |
+| **Total estimated** | **35-45 MB** |
+| Brotli compressed | ~8-12 MB |
+
+This replaces the current 9.6 MB (KiCad) + 63 MB (opencascade.js) = 72.6 MB total with a single ~40 MB binary.
+
+---
+
+## Key Risks and Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| OCCT platform code won't compile with Emscripten | opencascade.js proves it's possible; reference their patches |
+| OCCT compile time too long (hours) | Cache `.a` static libraries; only recompile when OCCT version changes |
+| Binary size too large | Aggressively strip unused modules; `-O3 -flto` dead code elimination |
+| KiCad exporter has dependencies we haven't compiled | Stub incrementally; the exporter's core path is well-bounded |
+| 3D model loading requires file I/O | Use Emscripten virtual FS; provide models via JS before export |
+| STEP output differs from native | Same code + same OCCT version = same output; any differences are bugs to fix |

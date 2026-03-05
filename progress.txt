@@ -1,61 +1,27 @@
-## GitLab Demo Pages Implementation Progress
+## Native STEP Export via WASM — Implementation Progress
 
-### Prerequisites
-- DRC WASM complete, ERC WASM complete, STEP export complete
-- Existing demo page at public/index.html (DRC-only, 720 lines)
-- WASM binary in public/ is outdated (7.3MB DRC-only), current build at kicad-drc-wasm/build-wasm-erc/ (9.6MB DRC+ERC+geometry)
-- opencascade.js v1.1.1 installed at kicad-drc-wasm/node_modules/opencascade.js/dist/
-- Sample PCB at public/sample.kicad_pcb, sample schematics at samples/erc/
-- Step-builder.mjs uses Node.js APIs — must be adapted for browser (inline in step.html)
-- opencascade.js SSO bug: filenames >10 chars get garbled, use short names like 'out.step'
+### Stage 1: Download and Configure OCCT 7.6.3 Source for Emscripten
+- Downloaded OCCT 7.6.3 source from GitHub (Open-Cascade-SAS/OCCT V7_6_3 tag)
+- Extracted to kicad-drc-wasm/thirdparty/occt-7.6.3/ (verified v7.6.3 in Standard_Version.hxx)
+- Removed tarball to save space
 
-### Stage 1 - Shared CSS + Nav Bar + Hub Page
-- 1a: Created public/shared.css with all styles extracted from index.html + nav bar styles + hub card styles
-- 1b: Created public/nav.js - injects nav bar with 4 links, highlights active page
-- 1c: Rewrote public/index.html as hub page with 3 cards (DRC, ERC, STEP), no WASM loading
-- 1d: Verified all files exist, nav.js syntax OK, index.html structure correct, no WASM loading
-- Stage 1 COMPLETE
+### Stage 2: Compile OCCT Core Modules to WASM Static Libraries
+- (not started)
 
-### Stage 2 - DRC Demo Page
-- 2a: Created public/drc.html - moved DRC demo from original index.html, uses shared.css + nav.js, updated module size to 9.6 MB, replaced emoji literals with HTML entities
-- 2b: Verified DRC works - all file references correct (shared.css, nav.js, kicad_drc.mjs, sample.kicad_pcb, coi-serviceworker.js), JS syntax valid, WASM binary exports match API calls, Node.js DRC test passed (4 violations on sample PCB), nav.js highlights active page correctly
-- Stage 2 COMPLETE
+### Stage 3: Compile OCCT STEP I/O and Application Framework Modules
+- (not started)
 
-### Stage 3 - ERC Demo Page
-- 3a: Copied samples/erc/with_errors.kicad_sch to public/sample.kicad_sch
-- 3b: Created public/erc.html - ERC demo page using shared.css + nav.js, accepts .kicad_sch files, uses ERC WASM API (_kicad_load_schematic, _kicad_run_erc, _kicad_get_erc_results, _kicad_cleanup_schematic), results grouped by sheet with sheet-header styling
-- Added .sheet-group and .sheet-header CSS styles to shared.css for ERC sheet grouping
-- 3c: Verified ERC works - JS syntax valid, all file references correct, ERC WASM API calls present, Node.js ERC test passed (9 violations on sample schematic, grouped in 1 sheet), nav.js highlights ERC page correctly
-- Stage 3 COMPLETE
+### Stage 4: Integrate KiCad's STEP Exporter Source Files
+- (not started)
 
-### Stage 4 - Update WASM Binary + Copy opencascade.js
-- 4a: Copied updated WASM from build-wasm-erc/ to public/ (kicad_drc.mjs 106KB, kicad_drc.wasm 10MB, up from 7.6MB)
-- 4b: Copied opencascade.js dist to public/ (opencascade.wasm.js 330KB, opencascade.wasm.wasm 66MB)
-- 4c: Verified sizes - kicad_drc.wasm 9.6MB (matches expected), opencascade.wasm.wasm 63MB (matches expected)
-- 4d: DRC test passed with updated WASM - loaded sample PCB, ran DRC, got 4 violations
-- 4e: ERC test passed with updated WASM - loaded sample schematic, ran ERC, got 9 violations in 1 sheet
-- Stage 4 COMPLETE
+### Stage 5: Add _kicad_export_step() API Function
+- (not started)
 
-### Stage 5 - STEP Page Layout + Geometry Extraction
-- 5a: Created public/step.html with layout - two status bars (KiCad WASM + opencascade.js on-demand), drop zone, stats panel (dimensions, thickness, copper layers, holes, components), 3D viewer container (500px, dark bg), Generate STEP + Download .step buttons, inline CSS for stats/viewer
-- 5b: Implemented KiCad WASM loading + geometry extraction inline in step.html - same WASM loading pattern as DRC/ERC, on file load calls _kicad_load_pcb + _kicad_get_pcb_geometry, parses JSON and populates stats, shows Generate STEP button after extraction
-- 5c: Verified geometry extraction - all 15 HTML structure checks pass, Node.js test: sample PCB loads (rc=0), geometry extracted: 40.0x20.0mm board, 1.60mm thick, 2 copper layers, 0 drill holes, 2 components. Nav highlights STEP Export correctly.
-- Stage 5 COMPLETE
+### Stage 6: Parity Testing
+- (not started)
 
-### Stage 6 - STEP Page 3D Construction + Preview
-- 6a: Added three.js import map to step.html head (three@0.175.0 CDN + addons)
-- 6b: Implemented browser-adapted initOCC() - lazy-loads opencascade.wasm.js on first Generate STEP click, updates status bar during loading
-- 6c: Implemented browser-adapted StepBuilder class inline in step.html - buildWire, buildBoardBody, cutDrillHoles, buildCopperLayerSolids, buildAllCopperLayers, writeStep, buildShape (new method combining board+holes+copper into compound)
-- 6d: Implemented tessellateShape() function - BRepMesh_IncrementalMesh_2, TopExp_Explorer face iteration, vertex extraction with location transform, triangle index extraction with reversed face winding order handling
-- 6e: Implemented three.js 3D viewer - PerspectiveCamera, WebGLRenderer, dark bg (#1e293b), ambient + 2 directional lights, MeshPhongMaterial green PCB (0x2d8a4e), OrbitControls with damping, auto-fit camera to bounding box, resize handler
-- 6f: Connected Generate STEP button - lazy-loads OCC, builds shape, tessellates, displays 3D preview, writes STEP file, enables download button
-- 6g: Implemented download button - creates Blob from STEP Uint8Array, triggers download as <filename>.step
-- 6h: Verified - 28/28 HTML structure checks pass, Node.js test: buildBoardBody + cutDrillHoles + buildAllCopperLayers + compound assembly + writeStep produces 337KB valid STEP (ISO-10303), tessellation yields 528 vertices + 336 triangles
-- Stage 6 COMPLETE
+### Stage 7: Browser Integration and Demo Page Update
+- (not started)
 
-### Stage 7 - Polish + Commit + Push
-- 7a: Tested all four pages - index.html hub with nav + 3 cards, drc.html DRC with 4 violations on sample PCB, erc.html ERC with 9 violations on sample schematic, step.html geometry extraction (40x20mm, 2 copper layers). All file references valid, all WASM APIs working.
-- 7b: No issues found during testing
-- 7c: Committed all changes
-- 7d: Pushed to remote
-- Stage 7 COMPLETE
+### Stage 8: Component 3D Model Support
+- (not started)
