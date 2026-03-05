@@ -374,7 +374,7 @@
             document.getElementById('stat-copper-layers').textContent =
                 geo.copper_layer_count || '-';
             document.getElementById('stat-holes').textContent =
-                (geo.drill_holes || []).length;
+                (geo.holes || []).length;
             document.getElementById('stat-components').textContent =
                 (geo.components || []).length;
 
@@ -490,7 +490,7 @@
 
             cutDrillHoles(boardShape) {
                 const oc = this.oc;
-                const holes = this.geometry.drill_holes;
+                const holes = this.geometry.holes;
 
                 if (!holes || holes.length === 0) {
                     return boardShape;
@@ -755,27 +755,70 @@
         }
 
         // ── Generate STEP ──
+        const yieldToUI = () => new Promise(r => setTimeout(r, 0));
+
         async function generateStep() {
             if (!geometryData) return;
 
             generateStepBtn.disabled = true;
             generateStepBtn2.disabled = true;
-            generateStepBtn2.textContent = 'Generating...';
+            generateStepBtn2.textContent = 'Loading opencascade.js...';
+
+            const t0 = performance.now();
 
             try {
                 // Lazy-load opencascade.js
                 const ocInstance = await initOCC();
 
-                generateStepBtn2.textContent = 'Building shape...';
-
                 const builder = new StepBuilder(ocInstance, geometryData);
 
-                // Build the 3D shape
-                const shape = builder.buildShape();
+                // Board body
+                generateStepBtn2.textContent = 'Building board body...';
+                await yieldToUI();
+                let t1 = performance.now();
+                let boardShape = builder.buildBoardBody();
+                console.log(`Board body: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+
+                // Drill holes
+                const holeCount = (geometryData.holes || []).length;
+                generateStepBtn2.textContent = `Cutting ${holeCount} drill holes...`;
+                await yieldToUI();
+                t1 = performance.now();
+                boardShape = builder.cutDrillHoles(boardShape);
+                console.log(`Drill holes (${holeCount}): ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+
+                // Copper layers
+                const copperLayers = geometryData.copper_layers || [];
+                const totalPolys = copperLayers.reduce((s, l) => s + (l.polygons || []).length, 0);
+                generateStepBtn2.textContent = `Building ${totalPolys} copper polygons...`;
+                await yieldToUI();
+                t1 = performance.now();
+                const copperSolids = builder.buildAllCopperLayers();
+                console.log(`Copper polygons (${totalPolys}): ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+
+                // Assemble compound
+                generateStepBtn2.textContent = 'Assembling compound...';
+                await yieldToUI();
+                let shape;
+                if (copperSolids.length === 0) {
+                    shape = boardShape;
+                } else {
+                    const compound = new ocInstance.TopoDS_Compound();
+                    const bld = new ocInstance.BRep_Builder();
+                    bld.MakeCompound(compound);
+                    bld.Add(compound, boardShape);
+                    for (const solid of copperSolids) {
+                        bld.Add(compound, solid);
+                    }
+                    shape = compound;
+                }
 
                 // Tessellate for 3D preview
                 generateStepBtn2.textContent = 'Tessellating...';
+                await yieldToUI();
+                t1 = performance.now();
                 const { vertices, indices } = tessellateShape(ocInstance, shape);
+                console.log(`Tessellation: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
 
                 // Set up three.js viewer and display
                 viewerCard.style.display = 'block';
@@ -785,14 +828,19 @@
                 displayMesh(vertices, indices);
 
                 // Write STEP file
-                generateStepBtn2.textContent = 'Writing STEP...';
+                generateStepBtn2.textContent = 'Writing STEP file...';
+                await yieldToUI();
+                t1 = performance.now();
                 stepData = builder.writeStep(shape);
+                console.log(`STEP write: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
 
                 // Show download button
                 downloadStepBtn.style.display = 'inline-block';
                 downloadStepBtn.disabled = false;
 
-                generateStepBtn2.textContent = 'Done!';
+                const totalTime = ((performance.now() - t0) / 1000).toFixed(1);
+                console.log(`Total STEP generation: ${totalTime}s`);
+                generateStepBtn2.textContent = `Done (${totalTime}s)`;
                 generateStepBtn2.className = 'btn btn-primary';
 
             } catch (err) {
