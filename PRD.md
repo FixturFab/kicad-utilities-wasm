@@ -250,29 +250,29 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Add opencascade.js STEP construction and three.js 3D preview.
 
 **Tasks**:
-- [ ] 6a. Add three.js import map to step.html:
+- [x] 6a. Add three.js import map to step.html:
   ```html
   <script type="importmap">
   { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/" } }
   </script>
   ```
-- [ ] 6b. Implement browser-adapted `initOpenCascade()`:
+- [x] 6b. Implement browser-adapted `initOpenCascade()`:
   - Import `./opencascade.wasm.js`
   - `locateFile: (path) => './' + path`
   - Update status bar during loading
-- [ ] 6c. Implement browser-adapted StepBuilder (inline in step.html):
+- [x] 6c. Implement browser-adapted StepBuilder (inline in step.html):
   - `buildWire(vertices, z)` — same as step-builder.mjs
   - `buildBoardBody()` — same
   - `cutDrillHoles()` — same (fuse-then-cut)
   - `buildCopperLayerSolids()` — same (with degenerate edge skip)
   - `writeStep(shape)` — simplified for browser: write to `oc.FS`, read back, return Uint8Array
   - Skip component model loading for demo
-- [ ] 6d. Implement tessellation function:
+- [x] 6d. Implement tessellation function:
   - `BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false)` for tessellation
   - `TopExp_Explorer` to iterate faces
   - Extract vertices via `tri.Node(i)`, triangles via `tri.Triangle(i)`
   - Handle face orientation (reversed faces swap winding order)
-- [ ] 6e. Implement three.js 3D viewer:
+- [x] 6e. Implement three.js 3D viewer:
   - Scene with dark background (#1e293b)
   - AmbientLight + 2 DirectionalLights
   - MeshPhongMaterial with green PCB color (0x2d8a4e)
@@ -280,22 +280,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   - OrbitControls with damping
   - Resize handler for canvas
   - Hint text: "Click and drag to rotate"
-- [ ] 6f. Connect "Generate STEP" button:
+- [x] 6f. Connect "Generate STEP" button:
   - Lazy-load opencascade.js on first click
   - Build shape (board body + holes + copper)
   - Tessellate + display in viewer
   - Store STEP data for download
   - Show "Download .step" button
-- [ ] 6g. Implement download button:
+- [x] 6g. Implement download button:
   - Create Blob from STEP Uint8Array
   - Trigger download as `<filename>.step`
-- [ ] 6h. Verify: drop sample.kicad_pcb, click Generate STEP, 3D preview shows, download works
+- [x] 6h. Verify: drop sample.kicad_pcb, click Generate STEP, 3D preview shows, download works
 
 **Success Criteria**:
-- [ ] opencascade.js loads lazily on "Generate STEP" click
-- [ ] 3D preview shows green PCB board with holes and copper
-- [ ] OrbitControls work (rotate, zoom, pan)
-- [ ] Download produces valid .step file (starts with ISO-10303-21)
+- [x] opencascade.js loads lazily on "Generate STEP" click
+- [x] 3D preview shows green PCB board with holes and copper
+- [x] OrbitControls work (rotate, zoom, pan)
+- [x] Download produces valid .step file (starts with ISO-10303-21)
 
 ---
 
@@ -344,5 +344,5 @@ After push, GitLab Pages deploys automatically. URLs:
 - [x] **Stage 3**: ERC page works
 - [x] **Stage 4**: WASM binaries updated
 - [x] **Stage 5**: STEP page layout + geometry
-- [ ] **Stage 6**: STEP 3D preview works
+- [x] **Stage 6**: STEP 3D preview works
 - [ ] **Stage 7**: All polished, committed, pushed

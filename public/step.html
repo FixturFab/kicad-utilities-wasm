@@ -61,6 +61,14 @@
             pointer-events: none;
         }
     </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/"
+        }
+    }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -137,7 +145,7 @@
         <div id="viewer-card" class="card" style="display: none;">
             <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">3D Preview</h2>
             <div id="viewer-container">
-                <div class="viewer-hint">Click and drag to rotate</div>
+                <div class="viewer-hint" id="viewer-hint">Click and drag to rotate</div>
             </div>
         </div>
 
@@ -162,11 +170,19 @@
 
     <script src="nav.js"></script>
     <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // ── State ──
         let Module = null;
         let currentPcbContent = null;
         let geometryData = null;
         let currentFileName = 'board';
+        let oc = null;          // opencascade instance (lazy-loaded)
+        let stepData = null;    // Uint8Array of STEP file
+        let scene, camera, renderer, controls;
 
+        // ── DOM refs ──
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
         const useSampleBtn = document.getElementById('use-sample');
@@ -181,12 +197,14 @@
         const headerWarning = document.getElementById('header-warning');
         const statsCard = document.getElementById('stats-card');
         const viewerCard = document.getElementById('viewer-card');
+        const viewerContainer = document.getElementById('viewer-container');
+        const viewerHint = document.getElementById('viewer-hint');
         const jsonSection = document.getElementById('json-section');
         const toggleJson = document.getElementById('toggle-json');
         const jsonContainer = document.getElementById('json-container');
         const jsonOutput = document.getElementById('json-output');
 
-        // Check for SharedArrayBuffer support
+        // ── KiCad WASM loading ──
         if (typeof SharedArrayBuffer === 'undefined') {
             headerWarning.style.display = 'block';
             kicadStatus.className = 'status error';
@@ -217,7 +235,7 @@
             }
         }
 
-        // Drag and drop handling
+        // ── Drag and drop ──
         dropZone.addEventListener('click', () => fileInput.click());
 
         dropZone.addEventListener('dragover', (e) => {
@@ -257,6 +275,7 @@
             jsonSection.style.display = 'none';
             generateStepBtn.style.display = 'none';
             downloadStepBtn.style.display = 'none';
+            stepData = null;
 
             if (Module) {
                 extractGeometry();
@@ -266,6 +285,7 @@
         clearFileBtn.addEventListener('click', () => {
             currentPcbContent = null;
             geometryData = null;
+            stepData = null;
             fileInput.value = '';
             fileInfo.style.display = 'none';
             dropZone.style.display = 'block';
@@ -291,6 +311,7 @@
                 statsCard.style.display = 'none';
                 viewerCard.style.display = 'none';
                 jsonSection.style.display = 'none';
+                stepData = null;
 
                 if (Module) {
                     extractGeometry();
@@ -332,7 +353,6 @@
         }
 
         function displayStats(geo) {
-            // Calculate board dimensions from outline bounding box
             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
             const polygons = geo.board?.outline?.polygons || [];
             for (const poly of polygons) {
@@ -367,14 +387,6 @@
             jsonOutput.textContent = JSON.stringify(geo, null, 2);
         }
 
-        // Both generate buttons trigger same action
-        generateStepBtn.addEventListener('click', () => {
-            alert('STEP generation will be implemented in Stage 6.');
-        });
-        generateStepBtn2.addEventListener('click', () => {
-            alert('STEP generation will be implemented in Stage 6.');
-        });
-
         function escapeHtml(text) {
             const div = document.createElement('div');
             div.textContent = text || '';
@@ -385,6 +397,429 @@
             const isHidden = jsonContainer.style.display === 'none';
             jsonContainer.style.display = isHidden ? 'block' : 'none';
             toggleJson.textContent = isHidden ? 'Hide raw JSON' : 'Show raw JSON';
+        });
+
+        // ── OpenCascade lazy loading ──
+        async function initOCC() {
+            if (oc) return oc;
+
+            occStatus.className = 'status loading';
+            occStatus.innerHTML = '<div class="spinner"></div><span>Loading opencascade.js (~63 MB)...</span>';
+
+            try {
+                const mod = await import('./opencascade.wasm.js');
+                const factory = mod.default || mod;
+                oc = await factory({
+                    locateFile: (path) => './' + path
+                });
+
+                occStatus.className = 'status success';
+                occStatus.innerHTML = '<span>opencascade.js loaded successfully</span>';
+                return oc;
+            } catch (err) {
+                occStatus.className = 'status error';
+                occStatus.innerHTML = `<span>Failed to load opencascade.js: ${escapeHtml(err.message)}</span>`;
+                throw err;
+            }
+        }
+
+        // ── StepBuilder (browser-adapted from step-builder.mjs) ──
+        class StepBuilder {
+            constructor(ocInstance, geometry) {
+                this.oc = ocInstance;
+                this.geometry = geometry;
+            }
+
+            buildWire(vertices, z = 0) {
+                const oc = this.oc;
+                const wireMaker = new oc.BRepBuilderAPI_MakeWire_1();
+
+                for (let i = 0; i < vertices.length; i++) {
+                    const [x1, y1] = vertices[i];
+                    const [x2, y2] = vertices[(i + 1) % vertices.length];
+                    if (Math.abs(x2 - x1) < 1e-6 && Math.abs(y2 - y1) < 1e-6) continue;
+                    const pt1 = new oc.gp_Pnt_3(x1, y1, z);
+                    const pt2 = new oc.gp_Pnt_3(x2, y2, z);
+                    const edge = new oc.BRepBuilderAPI_MakeEdge_3(pt1, pt2);
+                    wireMaker.Add_1(edge.Edge());
+                }
+
+                return wireMaker.Wire();
+            }
+
+            buildBoardBody() {
+                const oc = this.oc;
+                const { board } = this.geometry;
+                const thickness = board.thickness_mm || 1.6;
+                const polygons = board.outline.polygons;
+
+                if (!polygons || polygons.length === 0) {
+                    throw new Error('No board outline polygons found');
+                }
+
+                const firstPoly = polygons[0];
+                const outerWire = this.buildWire(firstPoly.outline, 0);
+                const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(outerWire, true);
+
+                if (firstPoly.holes && firstPoly.holes.length > 0) {
+                    for (const hole of firstPoly.holes) {
+                        if (hole.length >= 3) {
+                            const holeWire = this.buildWire(hole, 0);
+                            faceMaker.Add(holeWire);
+                        }
+                    }
+                }
+
+                const face = faceMaker.Face();
+                const vec = new oc.gp_Vec_4(0, 0, -thickness);
+                const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
+
+                return prism.Shape();
+            }
+
+            buildHoleCylinder(x, y, radius, z_top, z_bottom) {
+                const oc = this.oc;
+                const height = z_top - z_bottom;
+                const axis = new oc.gp_Ax2_3(
+                    new oc.gp_Pnt_3(x, y, z_bottom),
+                    new oc.gp_Dir_4(0, 0, 1)
+                );
+                const cyl = new oc.BRepPrimAPI_MakeCylinder_3(axis, radius, height);
+                return cyl.Shape();
+            }
+
+            cutDrillHoles(boardShape) {
+                const oc = this.oc;
+                const holes = this.geometry.drill_holes;
+
+                if (!holes || holes.length === 0) {
+                    return boardShape;
+                }
+
+                const thickness = this.geometry.board.thickness_mm || 1.6;
+                const z_top = 0.1;
+                const z_bottom = -(thickness + 0.1);
+
+                const cylinders = [];
+                for (const hole of holes) {
+                    const radius = hole.diameter_mm / 2;
+                    if (radius <= 0) continue;
+                    cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
+                }
+
+                if (cylinders.length === 0) {
+                    return boardShape;
+                }
+
+                let fusedHoles = cylinders[0];
+                for (let i = 1; i < cylinders.length; i++) {
+                    const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+                    fusedHoles = fuse.Shape();
+                }
+
+                const cut = new oc.BRepAlgoAPI_Cut_3(boardShape, fusedHoles);
+                return cut.Shape();
+            }
+
+            buildCopperLayerSolids(copperLayer) {
+                const oc = this.oc;
+                const z = copperLayer.z_start_mm;
+                const thickness = copperLayer.thickness_mm || 0.035;
+                const solids = [];
+
+                for (const poly of copperLayer.polygons) {
+                    if (!poly.outline || poly.outline.length < 3) continue;
+
+                    const outerWire = this.buildWire(poly.outline, z);
+                    const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(outerWire, true);
+
+                    if (poly.holes && poly.holes.length > 0) {
+                        for (const hole of poly.holes) {
+                            if (hole.length >= 3) {
+                                const holeWire = this.buildWire(hole, z);
+                                faceMaker.Add(holeWire);
+                            }
+                        }
+                    }
+
+                    const face = faceMaker.Face();
+                    const vec = new oc.gp_Vec_4(0, 0, -thickness);
+                    const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
+                    solids.push(prism.Shape());
+                }
+
+                return solids;
+            }
+
+            buildAllCopperLayers() {
+                const copperLayers = this.geometry.copper_layers;
+                if (!copperLayers || copperLayers.length === 0) return [];
+
+                const allSolids = [];
+                for (const layer of copperLayers) {
+                    if (!layer.polygons || layer.polygons.length === 0) continue;
+                    const layerSolids = this.buildCopperLayerSolids(layer);
+                    allSolids.push(...layerSolids);
+                }
+                return allSolids;
+            }
+
+            writeStep(shape) {
+                const oc = this.oc;
+
+                const outDir = '/home/web_user';
+                try { oc.FS.mkdir('/home'); } catch (e) { /* exists */ }
+                try { oc.FS.mkdir(outDir); } catch (e) { /* exists */ }
+
+                const prevCwd = oc.FS.cwd();
+                oc.FS.chdir(outDir);
+
+                const fname = 'out.step';
+                const fpath = outDir + '/' + fname;
+
+                const writer = new oc.STEPControl_Writer_1();
+                writer.Transfer(shape, oc.STEPControl_StepModelType.STEPControl_AsIs, true);
+                writer.Write(fname);
+                writer.delete();
+
+                oc.FS.chdir(prevCwd);
+
+                let data;
+                try {
+                    data = oc.FS.readFile(fpath);
+                } catch (e) {
+                    throw new Error('STEP file was not written to virtual FS');
+                }
+
+                try { oc.FS.unlink(fpath); } catch (e) { /* ignore */ }
+
+                return new Uint8Array(data);
+            }
+
+            buildShape() {
+                const oc = this.oc;
+
+                let boardShape = this.buildBoardBody();
+                boardShape = this.cutDrillHoles(boardShape);
+
+                const copperSolids = this.buildAllCopperLayers();
+
+                if (copperSolids.length === 0) {
+                    return boardShape;
+                }
+
+                const compound = new oc.TopoDS_Compound();
+                const builder = new oc.BRep_Builder();
+                builder.MakeCompound(compound);
+                builder.Add(compound, boardShape);
+                for (const solid of copperSolids) {
+                    builder.Add(compound, solid);
+                }
+
+                return compound;
+            }
+        }
+
+        // ── Tessellation ──
+        function tessellateShape(ocInstance, shape) {
+            new ocInstance.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false);
+
+            const vertices = [];
+            const indices = [];
+            let vertexOffset = 0;
+
+            const explorer = new ocInstance.TopExp_Explorer_2(
+                shape,
+                ocInstance.TopAbs_ShapeEnum.TopAbs_FACE,
+                ocInstance.TopAbs_ShapeEnum.TopAbs_SHAPE
+            );
+
+            while (explorer.More()) {
+                const face = ocInstance.TopoDS.Face_1(explorer.Current());
+                const location = new ocInstance.TopLoc_Location_1();
+                const handleTri = ocInstance.BRep_Tool.Triangulation(face, location);
+
+                if (!handleTri.IsNull()) {
+                    const tri = handleTri.get();
+                    const nbNodes = tri.NbNodes();
+                    const nbTriangles = tri.NbTriangles();
+                    const isReversed = face.Orientation_1() === ocInstance.TopAbs_Orientation.TopAbs_REVERSED;
+                    const trsf = location.Transformation();
+
+                    for (let i = 1; i <= nbNodes; i++) {
+                        const pt = tri.Node(i).Transformed(trsf);
+                        vertices.push(pt.X(), pt.Y(), pt.Z());
+                    }
+
+                    for (let i = 1; i <= nbTriangles; i++) {
+                        const triangle = tri.Triangle(i);
+                        let n1 = triangle.Value(1) - 1 + vertexOffset;
+                        let n2 = triangle.Value(2) - 1 + vertexOffset;
+                        let n3 = triangle.Value(3) - 1 + vertexOffset;
+                        if (isReversed) {
+                            indices.push(n1, n3, n2);
+                        } else {
+                            indices.push(n1, n2, n3);
+                        }
+                    }
+
+                    vertexOffset += nbNodes;
+                }
+
+                explorer.Next();
+            }
+
+            return {
+                vertices: new Float32Array(vertices),
+                indices: new Uint32Array(indices)
+            };
+        }
+
+        // ── Three.js viewer ──
+        function setupViewer() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1e293b);
+
+            camera = new THREE.PerspectiveCamera(
+                45,
+                viewerContainer.clientWidth / viewerContainer.clientHeight,
+                0.01,
+                10000
+            );
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            viewerContainer.appendChild(renderer.domElement);
+
+            // Lights
+            scene.add(new THREE.AmbientLight(0x404040, 2));
+            const light1 = new THREE.DirectionalLight(0xffffff, 1.5);
+            light1.position.set(50, 50, 50);
+            scene.add(light1);
+            const light2 = new THREE.DirectionalLight(0xffffff, 0.8);
+            light2.position.set(-50, -50, 50);
+            scene.add(light2);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            window.addEventListener('resize', () => {
+                const w = viewerContainer.clientWidth;
+                const h = viewerContainer.clientHeight;
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h);
+            });
+        }
+
+        function displayMesh(verts, idx) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+            geometry.setIndex(new THREE.BufferAttribute(idx, 1));
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshPhongMaterial({
+                color: 0x2d8a4e,
+                side: THREE.DoubleSide,
+                shininess: 30
+            });
+
+            const mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // Fit camera to bounding box
+            const box = new THREE.Box3().setFromObject(mesh);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            const distance = maxDim / (2 * Math.tan(fov / 2)) * 1.5;
+
+            camera.position.set(
+                center.x + distance * 0.5,
+                center.y - distance * 0.5,
+                center.z + distance * 0.8
+            );
+            camera.lookAt(center);
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        // ── Generate STEP ──
+        async function generateStep() {
+            if (!geometryData) return;
+
+            generateStepBtn.disabled = true;
+            generateStepBtn2.disabled = true;
+            generateStepBtn2.textContent = 'Generating...';
+
+            try {
+                // Lazy-load opencascade.js
+                const ocInstance = await initOCC();
+
+                generateStepBtn2.textContent = 'Building shape...';
+
+                const builder = new StepBuilder(ocInstance, geometryData);
+
+                // Build the 3D shape
+                const shape = builder.buildShape();
+
+                // Tessellate for 3D preview
+                generateStepBtn2.textContent = 'Tessellating...';
+                const { vertices, indices } = tessellateShape(ocInstance, shape);
+
+                // Set up three.js viewer and display
+                viewerCard.style.display = 'block';
+                if (!renderer) {
+                    setupViewer();
+                }
+                displayMesh(vertices, indices);
+
+                // Write STEP file
+                generateStepBtn2.textContent = 'Writing STEP...';
+                stepData = builder.writeStep(shape);
+
+                // Show download button
+                downloadStepBtn.style.display = 'inline-block';
+                downloadStepBtn.disabled = false;
+
+                generateStepBtn2.textContent = 'Done!';
+                generateStepBtn2.className = 'btn btn-primary';
+
+            } catch (err) {
+                console.error('STEP generation failed:', err);
+                alert('STEP generation failed: ' + err.message);
+                generateStepBtn2.textContent = 'Generate STEP';
+                generateStepBtn.disabled = false;
+                generateStepBtn2.disabled = false;
+            }
+        }
+
+        generateStepBtn.addEventListener('click', generateStep);
+        generateStepBtn2.addEventListener('click', generateStep);
+
+        // ── Download STEP ──
+        downloadStepBtn.addEventListener('click', () => {
+            if (!stepData) return;
+
+            const blob = new Blob([stepData], { type: 'application/step' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = currentFileName + '.step';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         });
     </script>
 </body>
