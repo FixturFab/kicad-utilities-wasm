@@ -328,31 +328,31 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
 **Goal**: Add copper layer extrusions to the STEP model.
 
 **Tasks**:
-- [ ] 5a. Implement copper polygon → thin solid extrusion:
+- [x] 5a. Implement copper polygon → thin solid extrusion:
   - For each copper layer in geometry JSON:
     - Build wire from polygon vertices (same as board outline)
     - Create face from wire
     - Extrude with copper thickness (default 0.035mm) at correct Z offset
   - Handle polygon holes (pad clearances): add inner wires to face
-- [ ] 5b. Position copper layers at correct Z:
+- [x] 5b. Position copper layers at correct Z:
   - Use stackup Z offsets from geometry JSON
   - F.Cu at top of board, B.Cu at bottom
   - Inner copper at intermediate Z positions
-- [ ] 5c. Cut drill holes from copper layers:
+- [x] 5c. Cut drill holes from copper layers:
   - Same cylinder subtraction as board body
   - Only cut layers that the hole spans
-- [ ] 5d. Assemble into compound:
+- [x] 5d. Assemble into compound:
   - `BRep_Builder` + `TopoDS_Compound` to combine board body + all copper layers
   - Each copper layer as a separate shape in compound (for per-layer coloring in STEP viewers)
-- [ ] 5e. Update test to verify:
+- [x] 5e. Update test to verify:
   - Multiple shapes in STEP compound
   - Copper layer count matches input
 
 **Success Criteria**:
-- [ ] Copper layers visible as thin extrusions at correct Z positions
-- [ ] Holes cut from copper where appropriate
-- [ ] All layers assembled in compound shape
-- [ ] Test passes
+- [x] Copper layers visible as thin extrusions at correct Z positions
+- [x] Holes cut from copper where appropriate
+- [x] All layers assembled in compound shape
+- [x] Test passes (38 assertions)
 
 ---
 
@@ -509,6 +509,6 @@ After each stage:
 - [x] **Stage 2**: Copper polygons + drill holes in JSON
 - [x] **Stage 3**: Board body STEP file generated
 - [x] **Stage 4**: Drill holes cut from board
-- [ ] **Stage 5**: Copper layers added
+- [x] **Stage 5**: Copper layers added
 - [ ] **Stage 6**: Component models placed
 - [ ] **Stage 7**: Public API complete, end-to-end test passes

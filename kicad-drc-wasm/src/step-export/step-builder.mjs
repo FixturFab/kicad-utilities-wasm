@@ -59,6 +59,7 @@ export class StepBuilder {
 
   /**
    * Build a wire from an array of [x, y] vertices on a given Z plane.
+   * Degenerate edges (same start/end point) are skipped.
    */
   buildWire(vertices, z = 0) {
     const oc = this.oc;
@@ -67,6 +68,8 @@ export class StepBuilder {
     for (let i = 0; i < vertices.length; i++) {
       const [x1, y1] = vertices[i];
       const [x2, y2] = vertices[(i + 1) % vertices.length];
+      // Skip degenerate edges (same point)
+      if (Math.abs(x2 - x1) < 1e-6 && Math.abs(y2 - y1) < 1e-6) continue;
       const pt1 = new oc.gp_Pnt_3(x1, y1, z);
       const pt2 = new oc.gp_Pnt_3(x2, y2, z);
       const edge = new oc.BRepBuilderAPI_MakeEdge_3(pt1, pt2);
@@ -212,15 +215,150 @@ export class StepBuilder {
   }
 
   /**
+   * Build a single copper layer solid from its polygon data.
+   * Each copper layer polygon is extruded by the layer thickness at the correct Z.
+   * Returns an array of TopoDS_Shape solids for this layer.
+   */
+  buildCopperLayerSolids(copperLayer) {
+    const oc = this.oc;
+    const z = copperLayer.z_start_mm;
+    const thickness = copperLayer.thickness_mm || 0.035;
+    const solids = [];
+
+    for (const poly of copperLayer.polygons) {
+      if (!poly.outline || poly.outline.length < 3) continue;
+
+      const outerWire = this.buildWire(poly.outline, z);
+      const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(outerWire, true);
+
+      // Add holes as inner wires
+      if (poly.holes && poly.holes.length > 0) {
+        for (const hole of poly.holes) {
+          if (hole.length >= 3) {
+            const holeWire = this.buildWire(hole, z);
+            faceMaker.Add(holeWire);
+          }
+        }
+      }
+
+      const face = faceMaker.Face();
+      // Extrude downward by copper thickness
+      const vec = new oc.gp_Vec_4(0, 0, -thickness);
+      const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
+      solids.push(prism.Shape());
+    }
+
+    return solids;
+  }
+
+  /**
+   * Build all copper layers as solids.
+   * Returns an array of TopoDS_Shape solids.
+   */
+  buildAllCopperLayers() {
+    const copperLayers = this.geometry.copper_layers;
+    if (!copperLayers || copperLayers.length === 0) return [];
+
+    const allSolids = [];
+    for (const layer of copperLayers) {
+      if (!layer.polygons || layer.polygons.length === 0) continue;
+      const layerSolids = this.buildCopperLayerSolids(layer);
+      allSolids.push(...layerSolids);
+    }
+    return allSolids;
+  }
+
+  /**
+   * Cut drill holes from a list of copper solids.
+   * Only cuts holes that span the layer's Z range.
+   */
+  cutHolesFromCopperSolids(solids, copperLayers) {
+    const oc = this.oc;
+    const holes = this.geometry.holes;
+    if (!holes || holes.length === 0 || solids.length === 0) return solids;
+
+    const boardThickness = this.geometry.board.thickness_mm || 1.6;
+
+    // Build a map of copper layer z ranges
+    const layerZRanges = [];
+    for (const layer of copperLayers) {
+      if (!layer.polygons || layer.polygons.length === 0) continue;
+      const z_top = layer.z_start_mm;
+      const z_bottom = z_top - (layer.thickness_mm || 0.035);
+      layerZRanges.push({ z_top, z_bottom });
+    }
+
+    // Build cylinders for holes - extend slightly beyond copper for clean cuts
+    const cylinders = [];
+    for (const hole of holes) {
+      const radius = hole.diameter_mm / 2;
+      if (radius <= 0) continue;
+      // Extend cylinder through full board for simplicity (through-holes)
+      const z_top = 0.1;
+      const z_bottom = -(boardThickness + 0.1);
+      cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
+    }
+
+    if (cylinders.length === 0) return solids;
+
+    // Fuse all hole cylinders
+    let fusedHoles = cylinders[0];
+    for (let i = 1; i < cylinders.length; i++) {
+      const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+      fusedHoles = fuse.Shape();
+    }
+
+    // Cut holes from each copper solid
+    return solids.map(solid => {
+      const cut = new oc.BRepAlgoAPI_Cut_3(solid, fusedHoles);
+      return cut.Shape();
+    });
+  }
+
+  /**
    * Build the board body and export as STEP.
-   * Optionally cuts drill holes from the board.
+   * Options: includeDrillHoles, includeCopperLayers.
    */
   buildAndExport(options = {}) {
+    const oc = this.oc;
     const includeDrillHoles = options.includeDrillHoles !== false;
-    let shape = this.buildBoardBody();
+    const includeCopperLayers = options.includeCopperLayers !== false;
+
+    let boardShape = this.buildBoardBody();
     if (includeDrillHoles) {
-      shape = this.cutDrillHoles(shape);
+      boardShape = this.cutDrillHoles(boardShape);
     }
-    return this.writeStep(shape);
+
+    // If no copper layers requested, just export the board
+    if (!includeCopperLayers) {
+      return this.writeStep(boardShape);
+    }
+
+    // Build copper layer solids
+    let copperSolids = this.buildAllCopperLayers();
+
+    // Cut holes from copper if needed
+    if (includeDrillHoles && copperSolids.length > 0) {
+      const copperLayers = (this.geometry.copper_layers || []).filter(
+        l => l.polygons && l.polygons.length > 0
+      );
+      copperSolids = this.cutHolesFromCopperSolids(copperSolids, copperLayers);
+    }
+
+    // If no copper solids, just export the board
+    if (copperSolids.length === 0) {
+      return this.writeStep(boardShape);
+    }
+
+    // Assemble into compound: board + all copper solids
+    const compound = new oc.TopoDS_Compound();
+    const builder = new oc.BRep_Builder();
+    builder.MakeCompound(compound);
+    builder.Add(compound, boardShape);
+    for (const solid of copperSolids) {
+      builder.Add(compound, solid);
+    }
+
+    return this.writeStep(compound);
   }
 }

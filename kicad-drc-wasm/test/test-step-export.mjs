@@ -1,5 +1,5 @@
 /**
- * Stage 3+4 test: Board body STEP generation + drill holes from PCB geometry.
+ * Stage 3+4+5 test: Board body STEP generation + drill holes + copper layers.
  *
  * Usage: node test-step-export.mjs [path-to-kicad_pcb]
  */
@@ -22,7 +22,7 @@ function assert(condition, msg) {
   }
 }
 
-console.log('=== Stage 3+4: Board Body + Drill Holes STEP Test ===');
+console.log('=== Stage 3+4+5: Board Body + Drill Holes + Copper Layers STEP Test ===');
 console.log('PCB file:', pcbPath);
 console.log();
 
@@ -162,6 +162,148 @@ if (process.env.WRITE_STEP) {
   const outHoles = resolve(__dirname, 'output-board-holes.step');
   writeFileSync(outHoles, stepWithHoles);
   console.log('  Written to:', outHoles);
+}
+
+// =============================================
+// Stage 5: Copper Layers Test (synthetic geometry)
+// =============================================
+console.log();
+console.log('--- Stage 5: Copper Layers Test ---');
+
+// Create synthetic geometry with board + 2 copper layers + 2 holes
+const copperGeometry = {
+  format_version: 1,
+  units: 'mm',
+  board: {
+    outline: {
+      polygons: [{
+        outline: [[0, 0], [50, 0], [50, 30], [0, 30]],
+        holes: []
+      }]
+    },
+    thickness_mm: 1.6
+  },
+  stackup: [],
+  copper_layers: [
+    {
+      layer_id: 'F.Cu',
+      z_start_mm: 0.0,
+      thickness_mm: 0.035,
+      polygons: [
+        {
+          net: 'GND',
+          outline: [[5, 5], [45, 5], [45, 25], [5, 25]],
+          holes: [[[10, 10], [15, 10], [15, 15], [10, 15]]]  // clearance hole
+        }
+      ]
+    },
+    {
+      layer_id: 'B.Cu',
+      z_start_mm: -1.6,
+      thickness_mm: 0.035,
+      polygons: [
+        {
+          net: 'VCC',
+          outline: [[2, 2], [48, 2], [48, 28], [2, 28]],
+          holes: []
+        }
+      ]
+    }
+  ],
+  holes: [
+    { type: 'pth', x_mm: 12.5, y_mm: 12.5, diameter_mm: 1.0, top_layer: 'F.Cu', bottom_layer: 'B.Cu', plating_thickness_mm: 0.025 },
+    { type: 'npth', x_mm: 40, y_mm: 15, diameter_mm: 3.2, top_layer: 'F.Cu', bottom_layer: 'B.Cu', plating_thickness_mm: 0 },
+  ],
+  components: []
+};
+
+// 5a: Build with copper layers enabled
+console.log('[8/12] Building STEP with copper layers...');
+const stepWithCopper = await exportPcbToStep(copperGeometry, {
+  includeDrillHoles: true,
+  includeCopperLayers: true
+});
+assert(stepWithCopper instanceof Uint8Array, 'STEP with copper should be Uint8Array');
+assert(stepWithCopper.length > 1000, `STEP with copper should be >1KB, got ${stepWithCopper.length} bytes`);
+console.log('  STEP with copper size:', stepWithCopper.length, 'bytes');
+
+const copperStepText = new TextDecoder().decode(stepWithCopper);
+assert(copperStepText.startsWith('ISO-10303-21'), 'STEP with copper should start with ISO-10303-21');
+assert(copperStepText.includes('CLOSED_SHELL'), 'STEP with copper should contain CLOSED_SHELL');
+
+// 5b: Build without copper for comparison
+console.log('[9/12] Building STEP without copper (comparison)...');
+const stepNoCu = await exportPcbToStep(copperGeometry, {
+  includeDrillHoles: true,
+  includeCopperLayers: false
+});
+assert(stepNoCu instanceof Uint8Array, 'STEP without copper should be Uint8Array');
+console.log('  STEP without copper size:', stepNoCu.length, 'bytes');
+
+// With copper should be larger (more geometry entities)
+assert(stepWithCopper.length > stepNoCu.length,
+  `STEP with copper (${stepWithCopper.length}) should be larger than without (${stepNoCu.length})`);
+
+// 5c: Verify compound has multiple shapes
+const shellCountCopper = (copperStepText.match(/CLOSED_SHELL/g) || []).length;
+const noCuText = new TextDecoder().decode(stepNoCu);
+const shellCountNoCu = (noCuText.match(/CLOSED_SHELL/g) || []).length;
+assert(shellCountCopper > shellCountNoCu,
+  `Should have more CLOSED_SHELLs with copper (${shellCountCopper}) vs without (${shellCountNoCu})`);
+console.log(`  CLOSED_SHELLs: with copper=${shellCountCopper}, without=${shellCountNoCu}`);
+
+// 5d: Verify copper with drill holes has cylindrical surfaces
+assert(copperStepText.includes('CYLINDRICAL_SURFACE'),
+  'STEP with copper+holes should contain CYLINDRICAL_SURFACE');
+
+// 5e: Verify boards with empty copper still work
+console.log('[10/12] Testing board with 0 copper polygons...');
+const emptyCuGeom = { ...copperGeometry, copper_layers: [] };
+const stepEmptyCu = await exportPcbToStep(emptyCuGeom, { includeCopperLayers: true });
+assert(stepEmptyCu instanceof Uint8Array, 'STEP with empty copper should be Uint8Array');
+assert(stepEmptyCu.length > 1000, 'STEP with empty copper should be >1KB');
+
+// 5f: Test copper layers without drill holes
+console.log('[11/12] Testing copper layers without drill holes...');
+const noDrillCuGeom = { ...copperGeometry, holes: [] };
+const stepCuNoDrill = await exportPcbToStep(noDrillCuGeom, {
+  includeDrillHoles: true,
+  includeCopperLayers: true
+});
+assert(stepCuNoDrill instanceof Uint8Array, 'STEP copper no-drill should be Uint8Array');
+assert(stepCuNoDrill.length > 1000, 'STEP copper no-drill should be >1KB');
+const cuNoDrillText = new TextDecoder().decode(stepCuNoDrill);
+const cuNoDrillShells = (cuNoDrillText.match(/CLOSED_SHELL/g) || []).length;
+// Board + 2 copper layers = at least 3 shells
+assert(cuNoDrillShells >= 3,
+  `Should have >= 3 CLOSED_SHELLs (board + 2 copper), got ${cuNoDrillShells}`);
+console.log(`  CLOSED_SHELLs (no drill): ${cuNoDrillShells}`);
+
+// 5g: Test with real PCB geometry (if copper polygons available)
+console.log('[12/12] Testing with real PCB copper data...');
+if (geometry.copper_layers && geometry.copper_layers.some(l => l.polygons.length > 0)) {
+  const stepRealCu = await exportPcbToStep(geometry, {
+    includeDrillHoles: true,
+    includeCopperLayers: true
+  });
+  assert(stepRealCu instanceof Uint8Array, 'Real PCB STEP with copper should be Uint8Array');
+  assert(stepRealCu.length > stepData.length,
+    `Real STEP with copper (${stepRealCu.length}) should be larger than board only (${stepData.length})`);
+  console.log('  Real PCB STEP with copper:', stepRealCu.length, 'bytes');
+
+  if (process.env.WRITE_STEP) {
+    const outCu = resolve(__dirname, 'output-board-copper.step');
+    writeFileSync(outCu, stepRealCu);
+    console.log('  Written to:', outCu);
+  }
+} else {
+  console.log('  (skipped: no copper polygons on real board)');
+}
+
+if (process.env.WRITE_STEP) {
+  const outCu = resolve(__dirname, 'output-copper.step');
+  writeFileSync(outCu, stepWithCopper);
+  console.log('  Written to:', outCu);
 }
 
 console.log();

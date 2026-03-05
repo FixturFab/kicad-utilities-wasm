@@ -54,3 +54,17 @@
 - Geometry regression: 72/72 pass
 - ERC regression: 155/155 pass
 - Stage 4 COMPLETE
+
+### Stage 5 - TypeScript: Copper Layers
+- 5a: Implemented buildCopperLayerSolids() in step-builder.mjs (polygon→wire→face→prism at z_start_mm)
+- 5b: Z positioning uses z_start_mm from copper layer data, extrudes downward by thickness_mm
+- 5c: Implemented cutHolesFromCopperSolids() - fuse-then-cut strategy for each copper solid
+- 5d: Implemented compound assembly (BRep_Builder + TopoDS_Compound) - board body + all copper solids
+- Added degenerate edge skip in buildWire() to handle copper polygons with duplicate vertices
+- 5e: Updated test-step-export.mjs with Stage 5 section (38 assertions total, all pass)
+  - Synthetic geometry: 50x30mm board, F.Cu + B.Cu copper layers, 2 drill holes
+  - Validates: compound has more CLOSED_SHELLs with copper, holes cut from copper, empty copper OK
+  - Real PCB test: copper adds geometry to STEP output
+- Geometry regression: 72/72 pass
+- ERC regression: 155/155 pass
+- Stage 5 COMPLETE
