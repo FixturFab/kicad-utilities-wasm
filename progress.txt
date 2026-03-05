@@ -99,3 +99,16 @@
 - Verified transform positions: top Z=0.085 (copper 0.035 + BOARD_OFFSET 0.05), bottom Z=-1.685
 - Stage 6b COMPLETE
 - Stage 6 COMPLETE (all substages: 6a reader + 6b placement + 6c compound assembly)
+
+### Stage 7 - Public API + Integration
+- 7a: exportPcbToStep() API already implemented in src/step-export/index.mjs (complete)
+- 7b: Updated types/kicad-wasm.d.ts: added _kicad_get_pcb_geometry to KicadWasmModule, PcbGeometry types, StepExportOptions, ModelResolver, exportPcbToStep
+- 7c: Updated package.json: added step-export to exports map, step test scripts, step-export source files
+- 7d: Created test/test-step-e2e.mjs end-to-end test (26 assertions, all pass)
+- 7e: All tests pass:
+  - E2E test: 26/26 pass
+  - STEP export test: 73/73 pass
+  - Geometry test: 72/72 pass
+  - ERC regression: 155/155 pass
+- Stage 7 COMPLETE
+- ALL STAGES COMPLETE (1-7)

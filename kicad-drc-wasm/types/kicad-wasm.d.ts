@@ -72,6 +72,15 @@ export interface KicadWasmModule extends EmscriptenModule {
 
     /** Free all schematic/ERC resources. */
     _kicad_cleanup_schematic(): void;
+
+    // --- PCB Geometry API (for STEP export) ---
+
+    /**
+     * Get PCB geometry as a JSON string pointer.
+     * Must call _kicad_load_pcb() first.
+     * @returns Pointer to JSON string (use UTF8ToString), or 0 on error.
+     */
+    _kicad_get_pcb_geometry(): number;
 }
 
 export interface EmscriptenModule {
@@ -205,3 +214,99 @@ export type ErcViolationType =
     | 'unresolved_variable'
     | 'wire_dangling'
     | (string & {}); // Allow unknown types for forward compatibility
+
+// --- PCB Geometry Types (for STEP export) ---
+
+export interface PcbGeometry {
+    format_version: number;
+    units: string;
+    board: PcbBoard;
+    stackup: PcbStackupLayer[];
+    copper_layers: PcbCopperLayer[];
+    holes: PcbHole[];
+    components: PcbComponent[];
+}
+
+export interface PcbBoard {
+    outline: {
+        polygons: PcbPolygon[];
+    };
+    thickness_mm: number;
+}
+
+export interface PcbPolygon {
+    outline: [number, number][];
+    holes: [number, number][][];
+    net?: string;
+}
+
+export interface PcbStackupLayer {
+    type: 'copper' | 'dielectric' | 'soldermask' | 'silkscreen' | 'solderpaste';
+    layer_id: string;
+    thickness_mm: number;
+    z_offset_mm: number;
+    material?: string;
+    epsilon_r?: number;
+}
+
+export interface PcbCopperLayer {
+    layer_id: string;
+    z_start_mm: number;
+    thickness_mm: number;
+    polygons: PcbPolygon[];
+}
+
+export interface PcbHole {
+    type: 'pth' | 'npth';
+    x_mm: number;
+    y_mm: number;
+    diameter_mm: number;
+    top_layer: string;
+    bottom_layer: string;
+    plating_thickness_mm: number;
+}
+
+export interface PcbComponent {
+    reference: string;
+    footprint: string;
+    position: { x_mm: number; y_mm: number };
+    rotation_deg: number;
+    side: 'top' | 'bottom';
+    models: PcbComponentModel[];
+}
+
+export interface PcbComponentModel {
+    filename: string;
+    offset: { x_mm: number; y_mm: number; z_mm: number };
+    rotation: { x_deg: number; y_deg: number; z_deg: number };
+    scale: { x: number; y: number; z: number };
+}
+
+// --- STEP Export API ---
+
+/** Resolves 3D model filenames to STEP file data. */
+export interface ModelResolver {
+    resolve(filename: string): Promise<Uint8Array | null>;
+}
+
+export interface StepExportOptions {
+    /** Resolve 3D model filenames to STEP file data. Optional. */
+    modelResolver?: ModelResolver;
+    /** Include copper layers. Default: true. */
+    includeCopperLayers?: boolean;
+    /** Include drill holes. Default: true. */
+    includeDrillHoles?: boolean;
+    /** Include 3D component models. Default: true. */
+    includeComponents?: boolean;
+}
+
+/**
+ * Export PCB geometry to STEP format using opencascade.js.
+ * @param geometryJson PCB geometry JSON from kicad_get_pcb_geometry()
+ * @param options Export options
+ * @returns STEP file data
+ */
+export function exportPcbToStep(
+    geometryJson: PcbGeometry,
+    options?: StepExportOptions
+): Promise<Uint8Array>;

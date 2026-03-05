@@ -9,17 +9,26 @@
     ".": {
       "import": "./build-wasm-erc/kicad_drc.mjs",
       "types": "./types/kicad-wasm.d.ts"
+    },
+    "./step-export": {
+      "import": "./src/step-export/index.mjs",
+      "types": "./types/kicad-wasm.d.ts"
     }
   },
   "files": [
     "build-wasm-erc/kicad_drc.mjs",
     "build-wasm-erc/kicad_drc.wasm",
+    "src/step-export/index.mjs",
+    "src/step-export/step-builder.mjs",
     "types/kicad-wasm.d.ts"
   ],
   "scripts": {
     "test": "node test/test-erc-suite.mjs",
     "test:erc": "node test/test-erc.mjs",
-    "test:erc-hierarchical": "node test/test-erc-hierarchical.mjs"
+    "test:erc-hierarchical": "node test/test-erc-hierarchical.mjs",
+    "test:step-geometry": "node test/test-step-geometry.mjs",
+    "test:step-export": "node test/test-step-export.mjs",
+    "test:step-e2e": "node test/test-step-e2e.mjs"
   },
   "license": "GPL-3.0",
   "engines": {

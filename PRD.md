@@ -405,7 +405,7 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
 **Goal**: Clean public API, update types, end-to-end test.
 
 **Tasks**:
-- [ ] 7a. Create clean `exportPcbToStep()` public API in `src/step-export/index.ts`:
+- [x] 7a. Create clean `exportPcbToStep()` public API in `src/step-export/index.ts`:
   ```typescript
   export interface StepExportOptions {
     /** Resolve 3D model filenames to STEP file data. Optional. */
@@ -423,28 +423,28 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
     options?: StepExportOptions
   ): Promise<Uint8Array>;
   ```
-- [ ] 7b. Update `types/kicad-wasm.d.ts`:
+- [x] 7b. Update `types/kicad-wasm.d.ts`:
   - Add `_kicad_get_pcb_geometry` to `KicadWasmModule`
   - Add `PcbGeometry` JSON types
   - Add `StepExportOptions`, `ModelResolver` types
   - Add `exportPcbToStep` function type
-- [ ] 7c. Update `package.json`:
+- [x] 7c. Update `package.json`:
   - Add `opencascade.js` to dependencies
   - Add `step-export` to exports map
   - Add test script for step tests
-- [ ] 7d. Create end-to-end test `test/test-step-e2e.mjs`:
+- [x] 7d. Create end-to-end test `test/test-step-e2e.mjs`:
   - Load .kicad_pcb → get geometry → build full STEP (board + holes + copper)
   - Verify STEP file is valid and >10KB
   - Verify board dimensions roughly match PCB size
   - Run regression: `node --experimental-wasm-threads test/test-erc-suite.mjs`
-- [ ] 7e. Commit all changes
+- [x] 7e. Commit all changes
 
 **Success Criteria**:
-- [ ] `exportPcbToStep()` produces valid STEP from .kicad_pcb
-- [ ] TypeScript types are complete
-- [ ] End-to-end test passes
-- [ ] ERC regression passes
-- [ ] All previous tests still pass
+- [x] `exportPcbToStep()` produces valid STEP from .kicad_pcb
+- [x] TypeScript types are complete
+- [x] End-to-end test passes
+- [x] ERC regression passes
+- [x] All previous tests still pass
 
 ---
 
@@ -511,4 +511,4 @@ After each stage:
 - [x] **Stage 4**: Drill holes cut from board
 - [x] **Stage 5**: Copper layers added
 - [x] **Stage 6**: Component models placed
-- [ ] **Stage 7**: Public API complete, end-to-end test passes
+- [x] **Stage 7**: Public API complete, end-to-end test passes
