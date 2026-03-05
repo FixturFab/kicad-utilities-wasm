@@ -27,3 +27,11 @@
 - Added .sheet-group and .sheet-header CSS styles to shared.css for ERC sheet grouping
 - 3c: Verified ERC works - JS syntax valid, all file references correct, ERC WASM API calls present, Node.js ERC test passed (9 violations on sample schematic, grouped in 1 sheet), nav.js highlights ERC page correctly
 - Stage 3 COMPLETE
+
+### Stage 4 - Update WASM Binary + Copy opencascade.js
+- 4a: Copied updated WASM from build-wasm-erc/ to public/ (kicad_drc.mjs 106KB, kicad_drc.wasm 10MB, up from 7.6MB)
+- 4b: Copied opencascade.js dist to public/ (opencascade.wasm.js 330KB, opencascade.wasm.wasm 66MB)
+- 4c: Verified sizes - kicad_drc.wasm 9.6MB (matches expected), opencascade.wasm.wasm 63MB (matches expected)
+- 4d: DRC test passed with updated WASM - loaded sample PCB, ran DRC, got 4 violations
+- 4e: ERC test passed with updated WASM - loaded sample schematic, ran ERC, got 9 violations in 1 sheet
+- Stage 4 COMPLETE

@@ -196,25 +196,25 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Update public/ with current WASM build and add opencascade.js dist files.
 
 **Tasks**:
-- [ ] 4a. Copy updated WASM:
+- [x] 4a. Copy updated WASM:
   ```bash
   cp kicad-drc-wasm/build-wasm-erc/kicad_drc.mjs public/
   cp kicad-drc-wasm/build-wasm-erc/kicad_drc.wasm public/
   cp kicad-drc-wasm/build-wasm-erc/kicad_drc.worker.mjs public/ 2>/dev/null || true
   ```
-- [ ] 4b. Copy opencascade.js dist:
+- [x] 4b. Copy opencascade.js dist:
   ```bash
   cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.js public/
   cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.wasm public/
   ```
-- [ ] 4c. Verify sizes: kicad_drc.wasm ~9.6MB, opencascade.wasm.wasm ~63MB
-- [ ] 4d. Verify DRC page still works with updated WASM binary
-- [ ] 4e. Verify ERC page works with updated WASM binary
+- [x] 4c. Verify sizes: kicad_drc.wasm ~9.6MB, opencascade.wasm.wasm ~63MB
+- [x] 4d. Verify DRC page still works with updated WASM binary
+- [x] 4e. Verify ERC page works with updated WASM binary
 
 **Success Criteria**:
-- [ ] Updated WASM binary in public/
-- [ ] opencascade.js dist files in public/
-- [ ] DRC and ERC pages still functional
+- [x] Updated WASM binary in public/
+- [x] opencascade.js dist files in public/
+- [x] DRC and ERC pages still functional
 
 ---
 
@@ -342,7 +342,7 @@ After push, GitLab Pages deploys automatically. URLs:
 - [x] **Stage 1**: Shared CSS + nav + hub page
 - [x] **Stage 2**: DRC page works
 - [x] **Stage 3**: ERC page works
-- [ ] **Stage 4**: WASM binaries updated
+- [x] **Stage 4**: WASM binaries updated
 - [ ] **Stage 5**: STEP page layout + geometry
 - [ ] **Stage 6**: STEP 3D preview works
 - [ ] **Stage 7**: All polished, committed, pushed
