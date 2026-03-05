@@ -72,6 +72,16 @@ const char* kicad_get_erc_results(void);
  */
 void kicad_cleanup_schematic(void);
 
+/**
+ * Get PCB geometry as a JSON string.
+ * Extracts board outline, stackup, component placement, and other geometric
+ * data suitable for 3D STEP file generation.
+ * Must call kicad_load_pcb() first.
+ * The returned pointer is valid until the next call to this function or kicad_cleanup().
+ * @return JSON string with PCB geometry data, or NULL on error.
+ */
+const char* kicad_get_pcb_geometry(void);
+
 #ifdef __cplusplus
 }
 #endif

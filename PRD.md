@@ -1,382 +1,468 @@
-# KiCad ERC (Electrical Rules Check) WebAssembly - Product Requirements Document
+# KiCad STEP Export via WASM - Product Requirements Document
 
 ## Overview
 
-**Project Goal**: Extend the kicad-cli-wasm project to support ERC (Electrical Rules Check) for schematic validation in browsers and Node.js.
+**Project Goal**: Extract PCB geometry from KiCad's BOARD as JSON via WASM, then construct 3D STEP files in TypeScript using `opencascade.js`.
 
-**Relationship to DRC**: ERC will be added to the same WASM module as DRC, sharing the substantial common infrastructure already developed.
+**Architecture**: Two-layer approach:
+1. **C API** (WASM) — `kicad_get_pcb_geometry()` extracts board outline, stackup, copper, holes, and component placement as JSON
+2. **TypeScript** — `opencascade.js` constructs 3D geometry from JSON and writes STEP files
 
-**Target Environments**: Browser and Node.js (same as DRC)
+**Why not compile KiCad's STEP exporter directly?** KiCad's native STEP exporter (`step_pcb_model.cpp`) has 183+ OpenCASCADE Technology (OCCT) class references deeply coupled to C++. Compiling OCCT to WASM is impractical. Instead, we extract geometry data and use the existing `opencascade.js` npm package.
 
----
-
-## Feasibility Research Summary
-
-### ERC Source Location
-
-ERC is implemented in KiCad's `eeschema/` directory:
-
-| Location | Purpose |
-|----------|---------|
-| `eeschema/erc/erc.cpp/h` | Main ERC_TESTER class with 19 test methods |
-| `eeschema/erc/erc_settings.cpp/h` | ERC configuration and rule settings |
-| `eeschema/erc/erc_item.cpp/h` | ERC violation item definitions |
-| `eeschema/erc/erc_sch_pin_context.cpp/h` | Pin context for ERC checks |
-| `eeschema/connection_graph.cpp/h` | Connectivity graph (critical for ERC) |
-| `eeschema/schematic.cpp/h` | SCHEMATIC class (equivalent to BOARD for PCB) |
-| `eeschema/sch_io/kicad_sexpr/` | S-expression parser for .kicad_sch files |
-
-### ERC vs DRC Architecture Comparison
-
-| Aspect | DRC (PCB) | ERC (Schematic) |
-|--------|-----------|-----------------|
-| **Main class** | DRC_ENGINE | ERC_TESTER |
-| **Data model** | BOARD | SCHEMATIC |
-| **Connectivity** | CONNECTIVITY_DATA | CONNECTION_GRAPH |
-| **Test structure** | 27 separate test provider classes | 19 methods in ERC_TESTER |
-| **File parser** | PCB_IO_KICAD_SEXPR_PARSER | SCH_IO_KICAD_SEXPR_PARSER |
-| **File format** | .kicad_pcb | .kicad_sch |
-| **Item types** | FOOTPRINT, PAD, PCB_TRACK, ZONE... | SCH_SYMBOL, SCH_PIN, SCH_SHEET, SCH_WIRE... |
-
-### Shared Infrastructure (Already Built for DRC)
-
-The following components from the DRC WASM build can be fully reused:
-
-1. **wxString stubs** (`stubs/wx/`) - Extensive wxString compatibility layer
-2. **Platform stubs** (`kiplatform_wasm.cpp`, `pgm_base_wasm.cpp`)
-3. **Core libraries** - core, kimath, sexpr, fmt_lib, clipper2, delaunator
-4. **kicommon_wasm** - ~140 source files of common infrastructure
-5. **gal_wasm** - GAL subset (fonts, painters, views)
-6. **Reporter infrastructure** - REPORTER, PROGRESS_REPORTER stubs
-7. **Job system** - JOB_RC base class
-8. **S-expression parser base** - DSNLEXER, richio
-
-### ERC-Specific Modules Required
-
-New modules that need to be compiled for ERC:
-
-```
-eeschema/
-├── erc/
-│   ├── erc.cpp/h                    # Main ERC_TESTER class
-│   ├── erc_settings.cpp/h           # ERC configuration
-│   ├── erc_item.cpp/h               # Violation items
-│   └── erc_sch_pin_context.cpp/h    # Pin context
-├── connection_graph.cpp/h           # Connectivity graph
-├── schematic.cpp/h                  # SCHEMATIC class
-├── sch_symbol.cpp/h                 # Symbol instances
-├── sch_pin.cpp/h                    # Pin objects
-├── sch_sheet.cpp/h                  # Hierarchical sheets
-├── sch_sheet_pin.cpp/h              # Sheet pins
-├── sch_wire.cpp/h                   # Wires
-├── sch_bus_entry.cpp/h              # Bus entries
-├── sch_junction.cpp/h               # Junctions
-├── sch_no_connect.cpp/h             # No-connect markers
-├── sch_label.cpp/h                  # Labels (local, global, hier)
-├── sch_field.cpp/h                  # Symbol fields
-├── sch_screen.cpp/h                 # Screen management
-├── sch_item.cpp/h                   # Base item class
-├── sch_connection.cpp/h             # Connection representation
-├── sch_io/
-│   ├── sch_io.cpp/h                 # I/O plugin base
-│   ├── sch_io_mgr.cpp/h             # I/O manager
-│   └── kicad_sexpr/
-│       ├── sch_io_kicad_sexpr.cpp/h
-│       └── sch_io_kicad_sexpr_parser.cpp/h
-└── lib_symbol.cpp/h                 # Library symbol definitions
-```
-
-**Estimated file count**: ~40-50 additional source files
+**Target Environments**: Browser and Node.js (same as DRC/ERC)
 
 ---
 
-## Open Questions Resolved
+## Reference Code
 
-### Architecture
+| Source File | Purpose |
+|-------------|---------|
+| `kicad-test/kicad-src/pcbnew/exporters/step/exporter_step.cpp` | Main export logic, geometry extraction flow |
+| `kicad-test/kicad-src/pcbnew/exporters/step/step_pcb_model.cpp` | 3D model construction, `getModelLocation()` |
+| `kicad-test/kicad-src/pcbnew/board.h` | BOARD class, `GetBoardPolygonOutlines()`, `Footprints()` |
+| `kicad-test/kicad-src/pcbnew/board_stackup_manager/board_stackup.h` | Stackup layer data |
+| `kicad-test/kicad-src/libs/kimath/include/geometry/shape_poly_set.h` | Polygon data structure |
+| `kicad-test/kicad-src/pcbnew/pad.h` | PAD class, hole data |
 
-**Q1: Should ERC be a separate WASM module or combined with DRC?**
+---
 
-**A: Combined module.** Rationale:
-- ~70% shared infrastructure (kicommon_wasm, stubs, core libs)
-- Same build system and toolchain
-- Unified API for Studio integration
-- Smaller total download size than two separate modules
-- Users validating designs typically need both DRC and ERC
+## JSON Geometry Schema
 
-**Q2: What KiCad source modules are required for ERC vs DRC?**
+The `kicad_get_pcb_geometry()` function returns JSON with this structure:
 
-**A: See table above.** Key difference is:
-- DRC: pcbnew/ (BOARD, PCB_*, FOOTPRINT, CONNECTIVITY_DATA)
-- ERC: eeschema/ (SCHEMATIC, SCH_*, LIB_SYMBOL, CONNECTION_GRAPH)
-
-Both share: common/, libs/core/, libs/kimath/, libs/sexpr/
-
-**Q3: Can we build a minimal "validation-only" subset of KiCad?**
-
-**A: Yes, same approach as DRC.** Exclude:
-- GUI components (editors, dialogs, tools)
-- Netlist export (separate feature)
-- Simulation integration (ngspice)
-- BOM generation
-- PDF/plot export
-- Symbol library editor functionality
-
-**Q4: What's the memory footprint difference between ERC-only vs full CLI?**
-
-**A: Estimated ERC addition**: +2-4MB WASM binary, +5-10MB runtime memory
-- ERC is simpler than DRC (no polygon operations, no zone fills)
-- Schematic data structures are lighter than PCB (no copper pours)
-- CONNECTION_GRAPH is the main memory consumer
-
-### Dependencies
-
-**Q1: Does ERC require symbol library loading? How to handle?**
-
-**A: Partial.**
-- Basic ERC (connectivity, pin conflicts): No library needed
-- "Library symbol differs from schematic" check: Needs library access
-- **Strategy**: Make library checks optional, skip in WASM by default
-- Symbols embedded in .kicad_sch files are sufficient for most checks
-
-**Q2: Does ERC need the schematic's linked footprints/PCB?**
-
-**A: No.**
-- ERC is schematic-only
-- Footprint assignment checking is optional and can be disabled
-- PCB cross-reference (annotation) is not part of ERC
-
-**Q3: What file formats does ERC need to parse beyond .kicad_sch?**
-
-**A: Minimal additional formats:**
-- `.kicad_sym` - Symbol library files (optional, for library validation)
-- Hierarchical schematics reference other .kicad_sch files (handled recursively)
-- No other formats required for basic ERC
-
-**Q4: Are there runtime data files (e.g., rule definitions) needed?**
-
-**A: No.**
-- ERC rules are embedded in the schematic's project settings
-- Default rules are compiled into the code
-- No external configuration files required
-
-### API Design
-
-**Q1: What should the JavaScript/TypeScript API look like?**
-
-**A: Extend existing DRC API pattern:**
-```typescript
-// Existing DRC API
-interface KicadWasm {
-  // DRC (existing)
-  loadPcb(content: string): boolean;
-  runDrc(): DrcResult;
-
-  // ERC (new)
-  loadSchematic(content: string): boolean;
-  loadSchematicSheet(path: string, content: string): boolean; // For hierarchical
-  runErc(): ErcResult;
-  getErcResults(): string; // JSON
-  cleanupSchematic(): void;
-}
-
-interface ErcResult {
-  violations: ErcViolation[];
-  summary: {
-    errors: number;
-    warnings: number;
-    exclusions: number;
-  };
-}
-
-interface ErcViolation {
-  type: string;           // e.g., "ERCE_PIN_NOT_CONNECTED"
-  severity: "error" | "warning";
-  message: string;
-  sheet: string;          // Sheet path
-  items: {
-    reference?: string;   // e.g., "U1"
-    pin?: string;         // e.g., "VCC"
-    position: { x: number; y: number };
-  }[];
+```json
+{
+  "format_version": 1,
+  "units": "mm",
+  "board": {
+    "outline": {
+      "polygons": [
+        {
+          "outline": [[x, y], [x, y], ...],
+          "holes": [[[x, y], [x, y], ...], ...]
+        }
+      ]
+    },
+    "thickness_mm": 1.6
+  },
+  "stackup": [
+    {
+      "type": "copper|dielectric|soldermask|silkscreen|solderpaste",
+      "layer_id": "F.Cu",
+      "thickness_mm": 0.035,
+      "z_offset_mm": 0.0,
+      "material": "copper",
+      "epsilon_r": 4.5
+    }
+  ],
+  "copper_layers": [
+    {
+      "layer_id": "F.Cu",
+      "z_start_mm": 0.0,
+      "thickness_mm": 0.035,
+      "polygons": [
+        {
+          "net": "GND",
+          "outline": [[x, y], ...],
+          "holes": [[[x, y], ...]]
+        }
+      ]
+    }
+  ],
+  "holes": [
+    {
+      "type": "pth|npth",
+      "x_mm": 10.0,
+      "y_mm": 20.0,
+      "diameter_mm": 0.3,
+      "top_layer": "F.Cu",
+      "bottom_layer": "B.Cu",
+      "plating_thickness_mm": 0.025
+    }
+  ],
+  "components": [
+    {
+      "reference": "U1",
+      "footprint": "Package_SO:SOIC-8",
+      "position": { "x_mm": 50.0, "y_mm": 30.0 },
+      "rotation_deg": 0.0,
+      "side": "top|bottom",
+      "models": [
+        {
+          "filename": "Package_SO.3dshapes/SOIC-8.step",
+          "offset": { "x_mm": 0, "y_mm": 0, "z_mm": 0 },
+          "rotation": { "x_deg": 0, "y_deg": 0, "z_deg": 0 },
+          "scale": { "x": 1, "y": 1, "z": 1 }
+        }
+      ]
+    }
+  ]
 }
 ```
 
-**Q2: How to handle file system access in WASM (virtual FS)?**
+---
 
-**A: Same as DRC - use STRING_LINE_READER:**
-- Pass schematic content as string to API
-- For hierarchical schematics, caller provides all sheet contents
-- No actual filesystem access needed
+## Stages
 
-**Q3: Should we support streaming results or batch-only?**
+### Stage 1: C API — Board Outline + Stackup + Components
 
-**A: Batch-only initially.**
-- ERC is fast enough for batch processing
-- Streaming adds complexity without clear benefit
-- Can add streaming later if needed for very large schematics
+**Goal**: Add `kicad_get_pcb_geometry()` to the WASM API that extracts board outline, stackup, and component placement as JSON.
 
-**Q4: How to report progress for long-running checks?**
+**Tasks**:
+- [x] 1a. Add `kicad_get_pcb_geometry()` declaration to `kicad-drc-wasm/include/kicad_drc_api.h`
+- [x] 1b. Implement board outline extraction in `kicad-drc-wasm/src/api.cpp`:
+  - Call `g_board->GetBoardPolygonOutlines()` to get `SHAPE_POLY_SET`
+  - Iterate `OutlineCount()` polygons, each with `CPolygon(idx)[0]` outline and `CPolygon(idx)[1..n]` holes
+  - Convert `VECTOR2I` vertices to mm using `pcbIUScale.IUTomm()`
+  - Output as JSON polygon arrays
+- [x] 1c. Implement stackup extraction:
+  - Call `g_board->GetStackupOrDefault()` to get `BOARD_STACKUP`
+  - Iterate `GetCount()` items, extracting type, layer_id, thickness, material, epsilon_r
+  - Get total board thickness from `BuildBoardThicknessFromStackup()`
+  - Calculate Z offsets for each layer (accumulate from top)
+  - Include copper layer count from `g_board->GetCopperLayerCount()`
+- [x] 1d. Implement component extraction:
+  - Iterate `g_board->Footprints()` for each `FOOTPRINT*`
+  - Extract: `GetReference()`, `GetPosition()` (convert to mm), `GetOrientation().AsDegrees()`, `GetLayer()` (top/bottom)
+  - For each `footprint->Models()`: extract `m_Filename`, `m_Offset`, `m_Rotation`, `m_Scale`, `m_Show`
+- [x] 1e. Add `"_kicad_get_pcb_geometry"` to EXPORTED_FUNCTIONS in CMakeLists.txt line 733
+- [x] 1f. Build WASM and verify compilation succeeds
+- [x] 1g. Create `test/test-step-geometry.mjs` — Node.js test that:
+  - Loads a sample .kicad_pcb file
+  - Calls `kicad_get_pcb_geometry()`
+  - Validates JSON structure (outline exists, stackup has layers, components listed)
+  - Validates board outline has >3 vertices
+  - Validates stackup has at least 2 copper layers
+  - Run: `node --experimental-wasm-threads test/test-step-geometry.mjs`
 
-**A: Optional progress callback:**
-```typescript
-runErc(options?: {
-  onProgress?: (percent: number, message: string) => void;
-}): ErcResult;
+**Key KiCad APIs**:
+```cpp
+// Board outline
+bool BOARD::GetBoardPolygonOutlines(SHAPE_POLY_SET& aOutlines, ...);
+
+// Stackup
+BOARD_STACKUP BOARD::GetStackupOrDefault();
+int BOARD::GetCopperLayerCount() const;
+int BOARD_STACKUP::BuildBoardThicknessFromStackup() const;
+
+// Components
+const FOOTPRINTS& BOARD::Footprints() const;
+const std::vector<FP_3DMODEL>& FOOTPRINT::Models();
+
+// Unit conversion
+double pcbIUScale.IUTomm(int aValue);
 ```
 
-### Integration
+**Success Criteria**:
+- [x] `kicad_get_pcb_geometry()` returns valid JSON with board outline, stackup, and components
+- [x] Test passes: `node test/test-step-geometry.mjs` (56 assertions)
+- [x] ERC regression: `node test/test-erc-suite.mjs` still passes (155 assertions)
 
-**Q1: How will kicanvas display ERC errors as overlays?**
+---
 
-**A: Kicanvas integration via error coordinates:**
-- ERC results include sheet path and (x, y) positions
-- Kicanvas can render markers at those positions
-- Error items include reference designators for symbol highlighting
+### Stage 2: C API — Copper Polygons + Holes
 
-**Q2: How will the wizard present ERC results to users?**
+**Goal**: Extend `kicad_get_pcb_geometry()` to include copper layer polygons and drill holes.
 
-**A: Grouped by severity and type:**
-- Errors first, then warnings
-- Grouped by error type (all "unconnected pins" together)
-- Click-to-navigate in kicanvas viewer
+**Tasks**:
+- [ ] 2a. Implement copper polygon extraction in `api.cpp`:
+  - For each copper layer (F.Cu, In1.Cu, ..., B.Cu):
+    - Call `pad->TransformShapeToPolygon()` for all pads on this layer
+    - Call `track->TransformShapeToPolygon()` for all tracks on this layer
+    - Call `zone->TransformSolidAreasShapesToPolygon()` for filled zones
+    - Merge into `SHAPE_POLY_SET`, call `Simplify()`
+    - Serialize polygon outlines + holes as JSON arrays
+  - Group polygons by net name using `pad->GetNetname()`, `track->GetNetname()`, `zone->GetNetname()`
+  - Calculate Z start position and thickness for each copper layer from stackup
+- [ ] 2b. Implement drill hole extraction:
+  - Iterate pads: `pad->HasHole()`, `pad->GetEffectiveHoleShape()`, `pad->GetDrillSizeX()`
+  - Iterate vias: same hole extraction, plus `via->GetTopLayer()`, `via->GetBottomLayer()`
+  - Classify as PTH vs NPTH from `pad->GetAttribute()`
+  - Extract plating thickness (default 0.025mm for PTH)
+  - Output hole center (x,y in mm), diameter, layer span, type
+- [ ] 2c. Update test to validate:
+  - Copper layer polygons exist and have vertices
+  - Hole data present with valid diameters
+  - At least one PTH hole if board has through-hole components
+  - Net names associated with copper polygons
 
-**Q3: Should ERC results be cached/persisted?**
+**Key KiCad APIs**:
+```cpp
+// Pad polygon
+void PAD::TransformShapeToPolygon(SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                   int aClearance, int aMaxError, ERROR_LOC aLoc);
 
-**A: Application decision, not WASM module concern.**
-- WASM module is stateless between runs
-- Caller can cache results if desired
+// Track polygon
+void PCB_TRACK::TransformShapeToPolygon(SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                         int aClearance, int aMaxError, ERROR_LOC aLoc);
 
-**Q4: How to handle ERC on hierarchical schematics (multiple sheets)?**
+// Zone fill polygons
+void ZONE::TransformSolidAreasShapesToPolygon(PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aBuffer);
 
-**A: API supports loading multiple sheets:**
-```typescript
-// Load child sheets FIRST (before root) so they're on the virtual FS
-// when KiCad's parser recursively resolves child sheet references.
-loadSchematicSheet("subsheet.kicad_sch", subsheetContent);
-loadSchematicSheet("power/power.kicad_sch", powerContent);
-
-// Load root schematic (resolves child sheets from virtual FS)
-loadSchematic(rootContent);
-
-// Run ERC on full hierarchy
-runErc();
+// Hole data
+bool PAD::HasHole() const;
+std::shared_ptr<SHAPE_SEGMENT> PAD::GetEffectiveHoleShape();
+int PAD::GetDrillSizeX() const;
+PAD_ATTRIB PAD::GetAttribute() const; // PTH vs NPTH
 ```
 
----
-
-## Technical Approach
-
-### Phase Strategy
-
-**Prerequisite**: DRC WASM must be complete and stable (Stage 5g verified) before starting ERC work.
-
-ERC will be added incrementally to the existing kicad-cli-wasm project, following the same methodology that worked for DRC.
+**Success Criteria**:
+- [ ] JSON includes copper layer polygons grouped by net
+- [ ] JSON includes drill hole data with positions and diameters
+- [ ] Test passes with expanded assertions
+- [ ] ERC regression passes
 
 ---
 
-## Phases
+### Stage 3: TypeScript — Board Body STEP Generation
 
-### Phase 1: Native ERC Validation
-
-**Goal**: Verify ERC works with the existing kicad-cli native build before attempting WASM.
+**Goal**: Create TypeScript module that takes geometry JSON and produces a STEP file of the board body using `opencascade.js`.
 
 **Tasks**:
-- [x] Verify `kicad-cli sch erc` works on sample schematics
-- [x] Document ERC JSON output format
-- [x] Create sample .kicad_sch test files (simple, hierarchical, with errors)
-- [x] Identify all ERC error types in output
+- [ ] 3a. Add `opencascade.js` dependency:
+  - `cd kicad-drc-wasm && npm install opencascade.js`
+  - Create `src/step-export/` directory
+- [ ] 3b. Create `src/step-export/step-builder.ts` — main builder class:
+  - `StepBuilder` class that takes geometry JSON
+  - Initialize opencascade.js WASM module
+  - Method: `buildBoardBody()` → creates board solid from outline
+- [ ] 3c. Implement board outline → STEP solid:
+  - Polygon vertices → `BRepBuilderAPI_MakeWire` (connect edges with `BRepBuilderAPI_MakeEdge` from `gp_Pnt` pairs)
+  - Wire → face via `BRepBuilderAPI_MakeFace`
+  - Face → solid prism via `BRepPrimAPI_MakePrism` with board thickness as height vector `gp_Vec(0, 0, thickness_mm)`
+  - Handle outline holes: create hole wires, add as inner wires to face
+- [ ] 3d. Create `src/step-export/index.ts` — public API:
+  ```typescript
+  export async function exportPcbToStep(geometryJson: PcbGeometry): Promise<Uint8Array>
+  ```
+- [ ] 3e. Create `test/test-step-export.mjs` — test that:
+  - Loads a .kicad_pcb, gets geometry JSON, builds STEP
+  - Verifies output is valid STEP file (starts with "ISO-10303-21")
+  - Verifies file size is reasonable (>1KB)
+  - Run: `node --experimental-wasm-threads test/test-step-export.mjs`
+
+**Key opencascade.js APIs**:
+```typescript
+import initOpenCascade from 'opencascade.js';
+const oc = await initOpenCascade();
+
+// Point
+const pt = new oc.gp_Pnt_3(x, y, z);
+
+// Edge from two points
+const edge = new oc.BRepBuilderAPI_MakeEdge_24(pt1, pt2);
+
+// Wire from edges
+const wireMaker = new oc.BRepBuilderAPI_MakeWire_1();
+wireMaker.Add_1(edge.Edge());
+const wire = wireMaker.Wire();
+
+// Face from wire
+const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, true);
+const face = faceMaker.Face();
+
+// Prism (extrude face along vector)
+const vec = new oc.gp_Vec_4(0, 0, thickness);
+const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
+const solid = prism.Shape();
+
+// Write STEP
+const writer = new oc.STEPControl_Writer_1();
+writer.Transfer(solid, oc.STEPControl_StepModelType.STEPControl_AsIs, true);
+writer.Write("output.step");
+// Read from virtual FS: oc.FS.readFile("output.step")
+```
 
 **Success Criteria**:
-- [x] ERC JSON output parsed and understood
-- [x] Test schematics with known violations produce expected errors
-- [x] Hierarchical schematic ERC works
+- [ ] Board body STEP file generated from geometry JSON
+- [ ] STEP file is valid (starts with ISO-10303-21 header)
+- [ ] Board outline shape matches input polygon
+- [ ] Test passes
 
 ---
 
-### Phase 2: Schematic Parser WASM Compilation
+### Stage 4: TypeScript — Drill Holes
 
-**Goal**: Get the schematic parser compiling for WASM.
+**Goal**: Boolean-cut drill holes from the board body.
 
 **Tasks**:
-- [x] Add `eeschema/sch_io/kicad_sexpr/` files to CMakeLists.txt
-- [x] Add generated `sch_keywords.cpp` from KiCad build
-- [x] Add schematic item classes (sch_symbol, sch_pin, sch_sheet, etc.)
-- [x] Fix compilation errors (likely need additional wx stubs)
-- [x] Create `sch_io_mgr_wasm.cpp` (equivalent to `pcb_io_mgr_wasm.cpp`)
+- [ ] 4a. Implement cylinder creation for each hole:
+  - `BRepPrimAPI_MakeCylinder` with hole radius and full board height
+  - Position cylinder at hole center using `gp_Ax2` (axis at hole x,y, direction along Z)
+  - Handle blind/buried vias: cylinder height matches layer span, not full board
+- [ ] 4b. Implement boolean subtraction:
+  - `BRepAlgoAPI_Cut` to subtract each cylinder from board body
+  - Process holes in batches to avoid performance issues
+  - Fuse all hole cylinders first with `BRepAlgoAPI_Fuse`, then single cut operation
+- [ ] 4c. Update test to verify:
+  - Board body has holes after boolean cut
+  - STEP file size increases (more geometry)
+
+**Key opencascade.js APIs**:
+```typescript
+// Cylinder at position
+const axis = new oc.gp_Ax2_3(
+    new oc.gp_Pnt_3(x, y, z_bottom),
+    new oc.gp_Dir_4(0, 0, 1)
+);
+const cyl = new oc.BRepPrimAPI_MakeCylinder_2(axis, radius, height);
+
+// Boolean cut
+const cut = new oc.BRepAlgoAPI_Cut_3(boardSolid, cyl.Shape(), new oc.Message_ProgressRange_1());
+const result = cut.Shape();
+
+// Fuse multiple shapes
+const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRange_1());
+```
 
 **Success Criteria**:
-- [x] Schematic parser library compiles for WASM
-- [x] Can load .kicad_sch content into SCHEMATIC object
+- [ ] Holes are cut from board body
+- [ ] STEP file correctly shows through-holes
+- [ ] Test passes
 
 ---
 
-### Phase 3: CONNECTION_GRAPH WASM Compilation
+### Stage 5: TypeScript — Copper Layers
 
-**Goal**: Get the connectivity graph compiling, which is critical for ERC.
+**Goal**: Add copper layer extrusions to the STEP model.
 
 **Tasks**:
-- [x] Add `eeschema/connection_graph.cpp` to CMakeLists.txt
-- [x] Add `eeschema/sch_connection.cpp`
-- [x] Fix compilation errors (wx dependencies, threading)
-- [x] Verify CONNECTION_GRAPH builds connectivity from parsed schematic
+- [ ] 5a. Implement copper polygon → thin solid extrusion:
+  - For each copper layer in geometry JSON:
+    - Build wire from polygon vertices (same as board outline)
+    - Create face from wire
+    - Extrude with copper thickness (default 0.035mm) at correct Z offset
+  - Handle polygon holes (pad clearances): add inner wires to face
+- [ ] 5b. Position copper layers at correct Z:
+  - Use stackup Z offsets from geometry JSON
+  - F.Cu at top of board, B.Cu at bottom
+  - Inner copper at intermediate Z positions
+- [ ] 5c. Cut drill holes from copper layers:
+  - Same cylinder subtraction as board body
+  - Only cut layers that the hole spans
+- [ ] 5d. Assemble into compound:
+  - `BRep_Builder` + `TopoDS_Compound` to combine board body + all copper layers
+  - Each copper layer as a separate shape in compound (for per-layer coloring in STEP viewers)
+- [ ] 5e. Update test to verify:
+  - Multiple shapes in STEP compound
+  - Copper layer count matches input
 
 **Success Criteria**:
-- [x] CONNECTION_GRAPH compiles for WASM
-- [x] Connectivity data generated from loaded schematic
+- [ ] Copper layers visible as thin extrusions at correct Z positions
+- [ ] Holes cut from copper where appropriate
+- [ ] All layers assembled in compound shape
+- [ ] Test passes
 
 ---
 
-### Phase 4: ERC Engine WASM Compilation
+### Stage 6: TypeScript — 3D Component Model Loading
 
-**Goal**: Get the ERC engine compiling and running basic checks.
+**Goal**: Load component STEP files and place them at correct positions on the board.
 
 **Tasks**:
-- [x] Add `eeschema/erc/*.cpp` files to CMakeLists.txt
-- [x] Add `jobs/job_sch_erc.cpp` to kicommon_wasm
-- [x] Create ERC API functions in `src/api.cpp`:
-  - `kicad_load_schematic()`
-  - `kicad_run_erc()`
-  - `kicad_get_erc_results()`
-  - `kicad_cleanup_schematic()`
-- [x] Implement ERC JSON report generation
+- [ ] 6a. Implement STEP model reader:
+  - `STEPControl_Reader` to load component .step files
+  - `ModelResolver` interface for callers to provide STEP file data:
+    ```typescript
+    interface ModelResolver {
+      resolve(filename: string): Promise<Uint8Array | null>;
+    }
+    ```
+  - Handle missing models gracefully (skip, don't fail)
+- [ ] 6b. Implement placement transform replicating `getModelLocation()` from step_pcb_model.cpp:
+  - Translation to footprint position on board (x, y, z_surface)
+  - Rotation by footprint angle
+  - Flip for bottom-side components (180deg X rotation)
+  - Apply model offset (x, y, z)
+  - Apply model rotation (z, y, x — Euler order)
+  - Apply model scale
+  - KiCad Y-axis inversion: negate Y in position
+  - Z-position: top surface for top-side, bottom surface for bottom-side
+- [ ] 6c. Add placed models to compound:
+  - Transform each model shape with `BRepBuilderAPI_Transform`
+  - Add to the compound alongside board body and copper
+
+**Key transform order** (from `step_pcb_model.cpp:getModelLocation`):
+1. Position: `gp_Trsf.SetTranslation(gp_Vec(x, -y, z_surface))`
+2. Board rotation: `gp_Trsf.SetRotation(gp_Ax1(origin, gp_Dir(0,0,1)), angle_rad)`
+3. Bottom flip: `gp_Trsf.SetRotation(gp_Ax1(origin, gp_Dir(0,1,0)), PI)` if bottom
+4. Model offset: `gp_Trsf.SetTranslation(gp_Vec(offset_x, offset_y, offset_z))`
+5. Model rotation Z: around Z axis
+6. Model rotation Y: around Y axis
+7. Model rotation X: around X axis
 
 **Success Criteria**:
-- [x] ERC engine compiles for WASM
-- [x] Basic connectivity checks run (unconnected pins, conflicts)
+- [ ] Component STEP models load and place correctly
+- [ ] Bottom-side components are flipped
+- [ ] Missing models are skipped without error
+- [ ] Test passes with at least one component model
 
 ---
 
-### Phase 5: Hierarchical Schematic Support
+### Stage 7: Public API + Integration
 
-**Goal**: Support multi-sheet schematics.
+**Goal**: Clean public API, update types, end-to-end test.
 
 **Tasks**:
-- [x] Implement `kicad_load_schematic_sheet()` API for child sheets
-- [x] Verify SCH_SHEET_LIST builds correctly from loaded sheets
-- [x] Test hierarchical pin/label connectivity
-- [x] Verify ERC runs across sheet boundaries
+- [ ] 7a. Create clean `exportPcbToStep()` public API in `src/step-export/index.ts`:
+  ```typescript
+  export interface StepExportOptions {
+    /** Resolve 3D model filenames to STEP file data. Optional. */
+    modelResolver?: ModelResolver;
+    /** Include copper layers. Default: true. */
+    includeCopperLayers?: boolean;
+    /** Include drill holes. Default: true. */
+    includeDrillHoles?: boolean;
+    /** Include 3D component models. Default: true. */
+    includeComponents?: boolean;
+  }
+
+  export async function exportPcbToStep(
+    geometryJson: PcbGeometry,
+    options?: StepExportOptions
+  ): Promise<Uint8Array>;
+  ```
+- [ ] 7b. Update `types/kicad-wasm.d.ts`:
+  - Add `_kicad_get_pcb_geometry` to `KicadWasmModule`
+  - Add `PcbGeometry` JSON types
+  - Add `StepExportOptions`, `ModelResolver` types
+  - Add `exportPcbToStep` function type
+- [ ] 7c. Update `package.json`:
+  - Add `opencascade.js` to dependencies
+  - Add `step-export` to exports map
+  - Add test script for step tests
+- [ ] 7d. Create end-to-end test `test/test-step-e2e.mjs`:
+  - Load .kicad_pcb → get geometry → build full STEP (board + holes + copper)
+  - Verify STEP file is valid and >10KB
+  - Verify board dimensions roughly match PCB size
+  - Run regression: `node --experimental-wasm-threads test/test-erc-suite.mjs`
+- [ ] 7e. Commit all changes
 
 **Success Criteria**:
-- [x] Hierarchical schematics load correctly
-- [x] ERC detects cross-sheet connectivity issues
+- [ ] `exportPcbToStep()` produces valid STEP from .kicad_pcb
+- [ ] TypeScript types are complete
+- [ ] End-to-end test passes
+- [ ] ERC regression passes
+- [ ] All previous tests still pass
 
 ---
 
-### Phase 6: Testing and Integration
+## Verification Commands
 
-**Goal**: Verify WASM ERC matches native kicad-cli output.
+```bash
+# Stage 1-2: Geometry extraction
+node --experimental-wasm-threads test/test-step-geometry.mjs
 
-**Tasks**:
-- [x] Create Node.js test suite comparing WASM vs native results
-- [x] Test with spork-generated schematics
-- [x] Document any limitations vs native ERC
-- [x] Create TypeScript type definitions
-- [x] Update package.json with ERC exports
+# Stage 3-7: STEP generation
+node --experimental-wasm-threads test/test-step-export.mjs
 
-**Success Criteria**:
-- [x] WASM ERC results match native for all test cases
-- [x] Performance acceptable (<2s for typical schematics)
-- [x] Works with spork output
+# Stage 7: End-to-end
+node --experimental-wasm-threads test/test-step-e2e.mjs
+
+# Regression
+node --experimental-wasm-threads test/test-erc-suite.mjs
+```
 
 ---
 
@@ -384,123 +470,45 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| CONNECTION_GRAPH complexity | HIGH | It's the largest ERC component; may need significant stubbing |
-| Symbol library dependency for some checks | MEDIUM | Make library checks optional; document limitations |
-| Hierarchical schematic complexity | MEDIUM | Start with flat schematics; add hierarchy incrementally |
-| wx dependencies in eeschema differ from pcbnew | MEDIUM | Reuse DRC stubs; add new stubs as needed |
-| WASM binary size increase | LOW | ERC is lighter than DRC; acceptable tradeoff |
+| Board connectivity not built before geometry extraction | HIGH | Reuse existing `kicad_load_pcb()` which calls `BuildConnectivity()` |
+| Zone fills not available (zones need filling) | HIGH | Check if zones are filled after load; if not, call `zone->GetFilledPolysList()` which returns pre-filled data from the .kicad_pcb file |
+| `opencascade.js` WASM size too large for browser | MEDIUM | Make STEP export an optional import; board body only needs ~5 OCCT classes |
+| Copper polygon count too high (performance) | MEDIUM | Simplify polygons, merge by net, skip inner layers if option set |
+| Component STEP model resolution | MEDIUM | ModelResolver interface lets callers provide models from any source |
+| SHAPE_POLY_SET serialization with arcs | LOW | Call `ClearArcs()` before serialization to convert arcs to line segments |
 
 ---
 
 ## Out of Scope
 
-- **Full schematic editor** - Just validation
-- **Real-time ERC** - Batch check only
-- **Custom ERC rules** - Use KiCad defaults
-- **Schematic netlist export** - Separate feature
-- **SPICE model validation** - Requires ngspice integration
-- **BOM generation** - Not ERC-related
-- **Annotation** - Not ERC-related
-- **Symbol library editing** - Not needed for validation
+- Solder mask / silkscreen 3D shapes (can add later)
+- Solder paste stencil shapes
+- Board edge chamfers / fillets
+- Copper trace individual shapes (merged by layer)
+- Component courtyard / fabrication layer shapes
+- VRML/glTF output (only STEP)
+- Interactive 3D viewer (separate project)
 
 ---
 
-## Estimated File Counts
+## Constants
 
-Based on DRC experience and eeschema structure:
-
-| Component | Estimated Files | Notes |
-|-----------|----------------|-------|
-| ERC core (erc/*.cpp) | 4 | Smaller than DRC |
-| Schematic data model (sch_*.cpp) | 25 | Similar to pcb_*.cpp |
-| Schematic parser | 5 | Similar to PCB parser |
-| Connection graph | 3 | Critical component |
-| Jobs/settings | 5 | Extend existing |
-| **Total new files** | ~42 | Smaller than DRC (~117) |
-
----
-
-## API Reference
-
-### C API (WASM exports)
-
-```c
-// Load a KiCad schematic file from memory
-int kicad_load_schematic(const char* sch_content, size_t length);
-
-// Load an additional schematic sheet (for hierarchical designs).
-// Must be called BEFORE kicad_load_schematic() for the root sheet.
-int kicad_load_schematic_sheet(const char* sheet_path, const char* content, size_t length);
-
-// Run ERC checks on loaded schematic
-int kicad_run_erc(void);
-
-// Get ERC results as JSON string
-const char* kicad_get_erc_results(void);
-
-// Free schematic resources
-void kicad_cleanup_schematic(void);
-```
-
-### JSON Output Format
-
-```json
-{
-  "source": "kicad-wasm",
-  "date": "2024-02-20T...",
-  "kicad_version": "9.99.0",
-  "violations": [
-    {
-      "type": "ERCE_PIN_NOT_CONNECTED",
-      "severity": "error",
-      "description": "Pin not connected",
-      "sheet_path": "/",
-      "items": [
-        {
-          "description": "Pin 1 (input) of U1",
-          "pos": {"x": 100.0, "y": 50.0}
-        }
-      ]
-    }
-  ],
-  "summary": {
-    "errors": 3,
-    "warnings": 5,
-    "exclusions": 0
-  }
-}
-```
-
----
-
-## Resources
-
-- KiCad ERC CLI: `kicad-cli sch erc --help`
-- [KiCad Schematic File Format](https://dev-docs.kicad.org/en/file-formats/sexpr-schematic/)
-- [KiCad GitLab - eeschema](https://gitlab.com/kicad/code/kicad/-/tree/master/eeschema)
-- [KiCad ERC Settings](https://gitlab.com/kicad/code/kicad/-/blob/master/eeschema/erc/erc_settings.cpp)
-- Existing DRC WASM implementation in this repo
+From KiCad source:
+- `BOARD_THICKNESS_DEFAULT_MM = 1.6`
+- `COPPER_THICKNESS_DEFAULT_MM = 0.035`
+- `OCC_MAX_DISTANCE_TO_MERGE_POINTS = 0.001`
+- KiCad IU: 1 mm = 1,000,000 IU (nanometer scale)
+- `pcbIUScale.IUTomm(value)` for conversion
 
 ---
 
 ## Checkpoints
 
-After each phase:
-
-- [x] **Phase 1**: Native ERC verified, test files created
-- [x] **Phase 2**: Schematic parser compiles for WASM
-- [x] **Phase 3**: CONNECTION_GRAPH compiles for WASM
-- [x] **Phase 4**: ERC engine runs basic checks in WASM
-- [x] **Phase 5**: Hierarchical schematics work
-- [x] **Phase 6**: WASM output matches native, integration complete
-
----
-
-## Prerequisites
-
-**Before starting ERC implementation:**
-
-1. DRC WASM must pass Stage 5g (Node.js testing complete)
-2. DRC WASM build system stable and documented
-3. Sample .kicad_sch test files prepared
-4. Native kicad-cli ERC output format documented
+After each stage:
+- [x] **Stage 1**: Board outline + stackup + components extracted as JSON
+- [ ] **Stage 2**: Copper polygons + drill holes in JSON
+- [ ] **Stage 3**: Board body STEP file generated
+- [ ] **Stage 4**: Drill holes cut from board
+- [ ] **Stage 5**: Copper layers added
+- [ ] **Stage 6**: Component models placed
+- [ ] **Stage 7**: Public API complete, end-to-end test passes

@@ -1,152 +1,17 @@
-## ERC Implementation Progress
+## STEP Export Implementation Progress
 
 ### Prerequisites
-- DRC WASM complete (Stage 5g verified) - see PRD-DRC-done.md and prior progress
-- DRC WASM build system stable
-- Server upgraded to 32GB RAM for compilation
+- DRC WASM complete (Stage 5g verified)
+- ERC WASM complete (Phase 6 verified, 155 assertions)
+- Build system stable, server has 32GB RAM
 
-### Phase 1 - Native ERC Validation
-- Verified kicad-cli v8.0.9 `sch erc` works on both sample schematics (simple_clean, with_errors)
-- simple_clean.kicad_sch: 5 violations (2 power_pin_not_driven errors, 3 lib_symbol_issues warnings)
-- with_errors.kicad_sch: 13 violations (pin_not_connected, wire_dangling, missing_unit, missing_power_pin, etc.)
-- Identified all 48 ERC error type strings from erc_item.cpp
-- Created hierarchical test schematic (hierarchical_root.kicad_sch + hierarchical_sub.kicad_sch)
-- Hierarchical ERC works: output has violations from both sheets with proper paths
-- Documented ERC JSON output format (see below)
-
-#### ERC JSON Output Format (kicad-cli v8.0.9)
-
-Top-level structure:
-```json
-{
-  "$schema": "https://schemas.kicad.org/erc.v1.json",
-  "coordinate_units": "mm",
-  "date": "ISO-8601 timestamp",
-  "kicad_version": "8.0.9",
-  "source": "filename.kicad_sch",
-  "sheets": [
-    {
-      "path": "/",
-      "uuid_path": "/root-uuid",
-      "violations": [
-        {
-          "type": "pin_not_connected",
-          "severity": "error|warning",
-          "description": "Human-readable message",
-          "items": [
-            {
-              "description": "Symbol U1 Pin 2 [-, Input, Line]",
-              "pos": { "x": 1.3208, "y": 0.8636 },
-              "uuid": "uuid-string"
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
-
-Note: positions in JSON appear to be in meters despite coordinate_units="mm" (KiCad v8.0.9 bug).
-
-#### All 48 ERC Error Types (from erc_item.cpp)
-bus_definition_conflict, bus_entry_needed, bus_to_bus_conflict, bus_to_net_conflict,
-different_unit_footprint, different_unit_net, duplicate_pins, duplicate_reference,
-duplicate_sheet_names, endpoint_off_grid, extra_units, field_name_whitespace,
-footprint_filter, footprint_link_issues, four_way_junction, generic-error,
-generic-warning, ground_pin_not_ground, hier_label_mismatch, isolated_pin_label,
-label_dangling, label_multiple_wires, lib_symbol_issues, lib_symbol_mismatch,
-missing_bidi_pin, missing_input_pin, missing_power_pin, missing_unit,
-multiple_net_names, net_not_bus_member, no_connect_connected, no_connect_dangling,
-pin_not_connected, pin_not_driven, pin_to_pin, power_pin_not_driven,
-same_local_global_label, similar_label_and_power, similar_labels, similar_power,
-simulation_model_issue, single_global_label, stacked_pin_name, unannotated,
-unconnected_wire_endpoint, undefined_netclass, unit_value_mismatch,
-unresolved_variable, wire_dangling
-
-### Phase 2 - Schematic Parser WASM Compilation
-- Created src/schematic_keywords_wasm.cpp (fixed hardcoded include path from generated file)
-- Created src/sch_io_mgr_wasm.cpp (simplified I/O manager, only KiCad sexpr plugin)
-- Added eeschema_wasm library to CMakeLists.txt with ~45 source files
-- Added ${KICAD_SRC}/eeschema and ${KICAD_BUILD}/eeschema to include dirs
-- Added kiapi::schematic::types stubs (Line, LocalLabel, SchematicLayer) to stubs/api/schematic/schematic_types.pb.h
-- Fixed SCH_NAVIGATE_TOOL stub: inherits TOOL_BASE, added HypertextCommand method
-- Added tool/tool_manager.h include to sch_edit_frame.h stub for full TOOL_MANAGER definition
-- Added GetPopupMenuSelectionFromUser to wxWindow stub
-- Fixed wxCStrData to std::string conversion in regex.h with explicit (const char*) casts
-- Added FloatingPosition() method to wxAuiPaneInfo stub
-- Fixed FromDIP ambiguity by removing default nullptr args from static overloads in wxWindow stub
-- Added iterator-based insert() methods to wxString stub (needed by boost string join)
-- eeschema_wasm library compiles successfully for WASM!
-
-### Phase 3 - CONNECTION_GRAPH and ERC Core WASM Compilation
-- Added connection_graph.cpp, erc.cpp, erc_sch_pin_context.cpp, erc_report.cpp to eeschema_wasm
-- Added wxString(const std::wstring&) constructor for std::to_wstring conversion
-- Added LowerCase()/UpperCase() methods to wxString stub
-- Added RecalculateConnections() stub to SCH_EDIT_FRAME
-- Added SCH_COMMIT forward declaration to sch_edit_frame.h
-- CONNECTION_GRAPH + all ERC core files compile for WASM!
-
-### Phase 4 - ERC Engine WASM Linking
-- Added commit.cpp and refdes_utils.cpp to kicommon_wasm
-- Added symbol.cpp to eeschema_wasm
-- Added stubs for SYMBOL_LIBRARY_ADAPTER virtual methods (LoadOne, etc.)
-- Added NGSPICE_SETTINGS/SPICE_SETTINGS constructor stubs
-- Added SIM_MODEL::GetPins(), SPICE_VALUE::Normalize()/ToString() stubs
-- Added FIELD_VALIDATOR stubs
-- Added SYMBOL_EDITOR_SETTINGS out-of-line destructor for typeinfo
-- Added EDA_DRAW_FRAME::OnSize stub for typeinfo
-- Fixed FIELD_VALIDATOR vtable: added Validate() key function, copy ctor, GetFieldValidationErrorMessage stub
-- Removed -fno-lto from erc_linker_stubs.cpp (caused LTO/non-LTO typeinfo mismatch)
-- Added TOOLS_HOLDER constructor + virtual method stubs (RegisterUIUpdateHandler, etc.)
-- Added EDA_BASE_FRAME constructor/destructor + virtual method stubs (ProcessEvent, etc.)
-- Added KIWAY_PLAYER constructor/destructor + virtual method stubs (ShowModal, etc.)
-- Added EDA_DRAW_FRAME constructor/destructor + full virtual method stubs
-- Added lockfile.h include for LOCKFILE complete type (needed by unique_ptr in EDA_DRAW_FRAME)
-- kicad_drc.mjs + kicad_drc.wasm LINK SUCCESSFULLY (~9.5MB WASM)
-- Added KIGIT::PROJECT_GIT_UTILS::GetCurrentHash and DESIGN_BLOCK_LIBRARY_ADAPTER stubs to linker_stubs.cpp
-- Replaced SETTINGS_MANAGER approach: use standalone g_erc_settings_mgr with LoadProject(path, false) to avoid Pgm().GetLibraryManager() crash
-
-### Phase 4 - ERC Engine WASM Runtime (continued)
-- Fixed __next_prime overflow crash: PGM_DRC_STANDALONE now initializes m_settings_manager (needed by SCHEMATIC_SETTINGS calling GetAppSettings<EESCHEMA_SETTINGS> through Pgm())
-- Fixed ERC hang: TestLibSymbolIssues() calls Pgm().GetLibraryManager() which was null; skipped in WASM
-- Skipped TestSimModelIssues (SIM_LIB_MGR::CreateModel stub dereferences null) and TestFootprintLinkIssues (requires CvPcb)
-- Replaced single RunTests() call with individual test calls to skip unsafe tests while keeping all other checks
-- ERC tests that run in WASM: DuplicateSheetNames, ConnectionGraph RunERC, MultiunitFootprints, MissingUnits, MultUnitPinConflicts, DuplicatePinNets, PinToPin, StackedPinNotation, SimilarLabels, GroundPins, SameLocalGlobalLabel, TextVars, FieldNameWhitespace, NoConnectPins, FootprintFilters, OffGridEndpoints, FourWayJunction, LabelMultipleWires, MissingNetclasses
-- ERC tests SKIPPED in WASM: TestLibSymbolIssues (no library access), TestSimModelIssues (no SPICE), TestFootprintLinkIssues (no CvPcb)
-- Verified WASM ERC results match native kicad-cli minus skipped tests:
-  - with_errors.kicad_sch: 9 WASM vs 13 native (diff = 3 lib_symbol_issues + 1 sim_model_issue)
-  - simple_clean.kicad_sch: 2 WASM vs 5 native (diff = 3 lib_symbol_issues)
-- JSON output follows schemas.kicad.org/erc.v1.json format
-- Phase 2 "Can load .kicad_sch content into SCHEMATIC object" - VERIFIED
-- Phase 3 "Verify CONNECTION_GRAPH builds connectivity from parsed schematic" - VERIFIED
-- Phase 4 "ERC engine runs basic checks in WASM" - VERIFIED
-
-### Phase 5 - Hierarchical Schematic Support
-- kicad_load_schematic_sheet() API already implemented - writes child sheet files to virtual FS
-- Fixed API docs: child sheets must be loaded BEFORE root (KiCad's loader recursively resolves child sheets by filename)
-- Created test/test-erc-hierarchical.mjs test for hierarchical ERC
-- Tested with hierarchical_root.kicad_sch + hierarchical_sub.kicad_sch
-- WASM loads 2 sheets successfully (root + SubSheet)
-- ERC runs across sheet boundaries: 3 violations detected
-  - 2x power_pin_not_driven (same as native v8)
-  - 1x hier_label_mismatch (WASM-only, likely v9 vs v8 behavioral difference)
-- SCH_SHEET_LIST builds correctly from loaded sheets - VERIFIED
-- Hierarchical pin/label connectivity checked (ercCheckHierSheets runs) - VERIFIED
-- ERC runs across sheet boundaries - VERIFIED
-- Phase 5 "Hierarchical schematics work" - VERIFIED
-
-### Phase 6 - Testing and Integration
-- Created test/test-erc-suite.mjs: comprehensive test suite with 155 assertions
-  - Tests: diag_ping, simple_clean, with_errors, hierarchical, JSON structure compliance, cleanup/reload
-  - Validates violation counts, types, severities, and JSON schema structure
-  - Compares WASM results against expected values (documented diffs from native kicad-cli v8)
-  - All 155 assertions pass
-- Updated what-doesnt-work.md: added working ERC tests list and test suite reference
-- Created types/kicad-wasm.d.ts: TypeScript definitions for DRC+ERC APIs, JSON result schemas, all 48 ERC violation types
-- Created package.json: @anthropic/kicad-wasm v0.1.0 with ESM exports, type definitions, npm test script
-- npm test runs test-erc-suite.mjs successfully (155/155 assertions pass)
-- Tested with spork-generated schematics: simple-led-circuit (7 violations), ic-symbol-library (15), schematic_sample (59), hierarchical-design (20) - all pass
-- Phase 6 "WASM ERC results match native for all test cases" - VERIFIED (minus documented skipped tests)
-- Phase 6 "Performance acceptable" - VERIFIED (all test schematics complete in <2s)
-- Phase 6 "Works with spork output" - VERIFIED
+### Stage 1 - C API: Board Outline + Stackup + Components
+- 1a: Added kicad_get_pcb_geometry() declaration to kicad_drc_api.h
+- 1b: Implemented board outline extraction (SHAPE_POLY_SET → JSON polygons with holes)
+- 1c: Implemented stackup extraction (BOARD_STACKUP items → JSON with type, thickness, z_offset, material, epsilon_r)
+- 1d: Implemented component extraction (footprints → JSON with reference, position, rotation, side, 3D models)
+- 1e: Added _kicad_get_pcb_geometry to EXPORTED_FUNCTIONS in CMakeLists.txt line 733
+- 1f: WASM build successful (exit code 0, no new errors)
+- 1g: Created test-step-geometry.mjs - 56 assertions, all pass
+- ERC regression: 155/155 pass
+- Stage 1 COMPLETE

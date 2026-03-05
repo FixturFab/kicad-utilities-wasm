@@ -29,6 +29,14 @@
 #include <thread_pool.h>
 #include <wx/filename.h>
 
+// KiCad headers - PCB geometry extraction
+#include <board_stackup_manager/board_stackup.h>
+#include <footprint.h>
+#include <geometry/shape_poly_set.h>
+#include <geometry/shape_line_chain.h>
+#include <layer_ids.h>
+#include <nlohmann/json.hpp>
+
 // KiCad headers - ERC
 #include <schematic.h>
 #include <sch_io/sch_io_mgr.h>
@@ -84,6 +92,7 @@ public:
 // Global state
 static std::unique_ptr<BOARD>              g_board;
 static std::string                         g_json_result;
+static std::string                         g_geometry_json_result;
 static std::unique_ptr<PGM_DRC_STANDALONE> g_pgm;
 
 static void ensure_pgm_initialized()
@@ -232,7 +241,181 @@ const char* kicad_get_drc_results( void )
 void kicad_cleanup( void )
 {
     g_json_result.clear();
+    g_geometry_json_result.clear();
     g_board.reset();
+}
+
+const char* kicad_get_pcb_geometry( void )
+{
+    if( !g_board )
+        return nullptr;
+
+    g_geometry_json_result.clear();
+
+    try
+    {
+        nlohmann::json result;
+        result["format_version"] = 1;
+        result["units"] = "mm";
+
+        // ── Board outline ──────────────────────────────────────────
+        SHAPE_POLY_SET outlines;
+        bool outlineOk = g_board->GetBoardPolygonOutlines( outlines, true, nullptr, false, false );
+
+        nlohmann::json boardJson;
+        nlohmann::json polygonsJson = nlohmann::json::array();
+
+        if( outlineOk )
+        {
+            // Convert arcs to line segments for easier serialization
+            outlines.ClearArcs();
+
+            for( int i = 0; i < outlines.OutlineCount(); i++ )
+            {
+                nlohmann::json polyJson;
+
+                // Outer outline
+                const SHAPE_LINE_CHAIN& outline = outlines.COutline( i );
+                nlohmann::json outlinePoints = nlohmann::json::array();
+
+                for( int j = 0; j < outline.PointCount(); j++ )
+                {
+                    const VECTOR2I& pt = outline.CPoint( j );
+                    outlinePoints.push_back( { pcbIUScale.IUTomm( pt.x ),
+                                               pcbIUScale.IUTomm( pt.y ) } );
+                }
+
+                polyJson["outline"] = outlinePoints;
+
+                // Holes
+                nlohmann::json holesJson = nlohmann::json::array();
+
+                for( int h = 0; h < outlines.HoleCount( i ); h++ )
+                {
+                    const SHAPE_LINE_CHAIN& hole = outlines.CHole( i, h );
+                    nlohmann::json holePoints = nlohmann::json::array();
+
+                    for( int j = 0; j < hole.PointCount(); j++ )
+                    {
+                        const VECTOR2I& pt = hole.CPoint( j );
+                        holePoints.push_back( { pcbIUScale.IUTomm( pt.x ),
+                                                pcbIUScale.IUTomm( pt.y ) } );
+                    }
+
+                    holesJson.push_back( holePoints );
+                }
+
+                polyJson["holes"] = holesJson;
+                polygonsJson.push_back( polyJson );
+            }
+        }
+
+        boardJson["outline"]["polygons"] = polygonsJson;
+
+        // Board thickness
+        BOARD_STACKUP stackup = g_board->GetStackupOrDefault();
+        int thicknessIU = stackup.BuildBoardThicknessFromStackup();
+        boardJson["thickness_mm"] = pcbIUScale.IUTomm( thicknessIU );
+
+        result["board"] = boardJson;
+
+        // ── Stackup ──────────────────────────────────────────────────
+        nlohmann::json stackupJson = nlohmann::json::array();
+        double zOffset = 0.0;
+
+        for( int i = 0; i < stackup.GetCount(); i++ )
+        {
+            BOARD_STACKUP_ITEM* item = stackup.GetStackupLayer( i );
+
+            if( !item || !item->IsEnabled() )
+                continue;
+
+            nlohmann::json layerJson;
+
+            switch( item->GetType() )
+            {
+            case BS_ITEM_TYPE_COPPER:      layerJson["type"] = "copper"; break;
+            case BS_ITEM_TYPE_DIELECTRIC:  layerJson["type"] = "dielectric"; break;
+            case BS_ITEM_TYPE_SOLDERMASK:  layerJson["type"] = "soldermask"; break;
+            case BS_ITEM_TYPE_SILKSCREEN:  layerJson["type"] = "silkscreen"; break;
+            case BS_ITEM_TYPE_SOLDERPASTE: layerJson["type"] = "solderpaste"; break;
+            default:                       layerJson["type"] = "unknown"; break;
+            }
+
+            PCB_LAYER_ID layerId = item->GetBrdLayerId();
+            if( layerId != UNDEFINED_LAYER )
+                layerJson["layer_id"] = std::string( g_board->GetLayerName( layerId ).mb_str() );
+
+            double thicknessMm = pcbIUScale.IUTomm( item->GetThickness() );
+            layerJson["thickness_mm"] = thicknessMm;
+            layerJson["z_offset_mm"] = zOffset;
+
+            wxString material = item->GetMaterial();
+            if( !material.IsEmpty() )
+                layerJson["material"] = std::string( material.mb_str() );
+
+            if( item->HasEpsilonRValue() )
+                layerJson["epsilon_r"] = item->GetEpsilonR();
+
+            stackupJson.push_back( layerJson );
+            zOffset += thicknessMm;
+        }
+
+        result["stackup"] = stackupJson;
+        result["copper_layer_count"] = g_board->GetCopperLayerCount();
+
+        // ── Components ────────────────────────────────────────────────
+        nlohmann::json componentsJson = nlohmann::json::array();
+
+        for( const FOOTPRINT* fp : g_board->Footprints() )
+        {
+            nlohmann::json compJson;
+
+            compJson["reference"] = std::string( fp->GetReference().mb_str() );
+
+            VECTOR2I pos = fp->GetPosition();
+            compJson["position"]["x_mm"] = pcbIUScale.IUTomm( pos.x );
+            compJson["position"]["y_mm"] = pcbIUScale.IUTomm( pos.y );
+
+            compJson["rotation_deg"] = fp->GetOrientation().AsDegrees();
+            compJson["side"] = ( fp->GetLayer() == B_Cu ) ? "bottom" : "top";
+
+            // 3D models
+            nlohmann::json modelsJson = nlohmann::json::array();
+
+            for( const FP_3DMODEL& model : fp->Models() )
+            {
+                if( !model.m_Show )
+                    continue;
+
+                nlohmann::json modelJson;
+                modelJson["filename"] = std::string( model.m_Filename.mb_str() );
+                modelJson["offset"]["x_mm"] = model.m_Offset.x;
+                modelJson["offset"]["y_mm"] = model.m_Offset.y;
+                modelJson["offset"]["z_mm"] = model.m_Offset.z;
+                modelJson["rotation"]["x_deg"] = model.m_Rotation.x;
+                modelJson["rotation"]["y_deg"] = model.m_Rotation.y;
+                modelJson["rotation"]["z_deg"] = model.m_Rotation.z;
+                modelJson["scale"]["x"] = model.m_Scale.x;
+                modelJson["scale"]["y"] = model.m_Scale.y;
+                modelJson["scale"]["z"] = model.m_Scale.z;
+                modelsJson.push_back( modelJson );
+            }
+
+            compJson["models"] = modelsJson;
+            componentsJson.push_back( compJson );
+        }
+
+        result["components"] = componentsJson;
+
+        g_geometry_json_result = result.dump();
+        return g_geometry_json_result.c_str();
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "PCB geometry extraction error: %s\n", e.what() );
+        return nullptr;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
