@@ -194,7 +194,7 @@ export class StepBuilder {
     const cylinders = [];
     for (const hole of holes) {
       const radius = hole.diameter_mm / 2;
-      if (radius <= 0) continue;
+      if (radius < 0.01) continue; // skip degenerate holes (< 0.02mm diameter)
       cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
     }
 
@@ -292,7 +292,7 @@ export class StepBuilder {
     const cylinders = [];
     for (const hole of holes) {
       const radius = hole.diameter_mm / 2;
-      if (radius <= 0) continue;
+      if (radius < 0.01) continue; // skip degenerate holes (< 0.02mm diameter)
       // Extend cylinder through full board for simplicity (through-holes)
       const z_top = 0.1;
       const z_bottom = -(boardThickness + 0.1);
