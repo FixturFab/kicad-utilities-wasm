@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ERC Check &#8212; KiCad WASM Tools</title>
+    <script src="coi-serviceworker.js"></script>
+    <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ERC Check</h1>
+            <p class="subtitle">Run electrical rules checks on schematics directly in your browser</p>
+        </header>
+
+        <div id="header-warning" class="header-warning" style="display: none;">
+            <strong>Note:</strong> This page requires <code>SharedArrayBuffer</code> for multi-threaded WASM.
+            If loading fails, ensure the page is served with the proper COOP/COEP headers.
+        </div>
+
+        <div class="card">
+            <div id="module-status" class="status loading">
+                <div class="spinner"></div>
+                <span>Loading WASM module (9.6 MB)...</span>
+            </div>
+
+            <div class="drop-zone" id="drop-zone">
+                <div class="drop-zone-icon">&#128196;</div>
+                <p><strong>Drop your .kicad_sch file here</strong></p>
+                <p class="hint">or click to browse</p>
+                <input type="file" id="file-input" accept=".kicad_sch">
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" id="use-sample" disabled>Use Sample Schematic</button>
+                <button class="btn btn-primary" id="run-erc" disabled>Run ERC Check</button>
+            </div>
+
+            <div id="file-info" class="file-info" style="display: none;">
+                <span class="file-name" id="file-name"></span>
+                <button class="btn btn-secondary" id="clear-file" style="padding: 0.5rem 1rem;">Clear</button>
+            </div>
+        </div>
+
+        <div id="results" class="card">
+            <div class="results-header">
+                <h2>ERC Results</h2>
+                <span id="results-badge" class="badge"></span>
+            </div>
+
+            <div id="violations-list"></div>
+
+            <div style="margin-top: 1rem;">
+                <button class="toggle-json" id="toggle-json">Show raw JSON</button>
+                <div id="json-container" style="display: none; margin-top: 0.5rem;">
+                    <pre class="json-output" id="json-output"></pre>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>
+                Built with <a href="https://www.kicad.org/" target="_blank">KiCad</a> &amp;
+                <a href="https://emscripten.org/" target="_blank">Emscripten</a>
+            </p>
+            <p style="margin-top: 0.5rem;">
+                <a href="https://gitlab.com/henrybtroutman/kicad-cli-wasm" target="_blank">View Source</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="nav.js"></script>
+    <script type="module">
+        let Module = null;
+        let currentSchContent = null;
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const useSampleBtn = document.getElementById('use-sample');
+        const runErcBtn = document.getElementById('run-erc');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const clearFileBtn = document.getElementById('clear-file');
+        const moduleStatus = document.getElementById('module-status');
+        const results = document.getElementById('results');
+        const violationsList = document.getElementById('violations-list');
+        const resultsBadge = document.getElementById('results-badge');
+        const toggleJson = document.getElementById('toggle-json');
+        const jsonContainer = document.getElementById('json-container');
+        const jsonOutput = document.getElementById('json-output');
+        const headerWarning = document.getElementById('header-warning');
+
+        // Check for SharedArrayBuffer support
+        if (typeof SharedArrayBuffer === 'undefined') {
+            headerWarning.style.display = 'block';
+            moduleStatus.className = 'status error';
+            moduleStatus.innerHTML = '<span>SharedArrayBuffer not available. Multi-threaded WASM requires COOP/COEP headers.</span>';
+        } else {
+            loadModule();
+        }
+
+        async function loadModule() {
+            try {
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
+                Module = await createKicadDRC({
+                    print: (text) => console.log('[WASM]', text),
+                    printErr: (text) => console.error('[WASM]', text),
+                    locateFile: (path) => './' + path,
+                    mainScriptUrlOrBlob: './kicad_drc.mjs'
+                });
+
+                await new Promise(r => setTimeout(r, 1000));
+
+                moduleStatus.className = 'status success';
+                moduleStatus.innerHTML = '<span>WASM module loaded successfully</span>';
+                useSampleBtn.disabled = false;
+                if (currentSchContent) runErcBtn.disabled = false;
+            } catch (err) {
+                console.error('Failed to load WASM module:', err);
+                moduleStatus.className = 'status error';
+                moduleStatus.innerHTML = `<span>Failed to load WASM module: ${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // Drag and drop handling
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        async function handleFile(file) {
+            if (!file.name.endsWith('.kicad_sch')) {
+                alert('Please select a .kicad_sch file');
+                return;
+            }
+
+            currentSchContent = await file.text();
+            fileName.textContent = file.name;
+            fileInfo.style.display = 'flex';
+            dropZone.style.display = 'none';
+            runErcBtn.disabled = !Module;
+            results.style.display = 'none';
+        }
+
+        clearFileBtn.addEventListener('click', () => {
+            currentSchContent = null;
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            dropZone.style.display = 'block';
+            runErcBtn.disabled = true;
+            results.style.display = 'none';
+        });
+
+        useSampleBtn.addEventListener('click', async () => {
+            try {
+                useSampleBtn.disabled = true;
+                useSampleBtn.textContent = 'Loading...';
+
+                const response = await fetch('./sample.kicad_sch');
+                currentSchContent = await response.text();
+
+                fileName.textContent = 'sample.kicad_sch';
+                fileInfo.style.display = 'flex';
+                dropZone.style.display = 'none';
+                runErcBtn.disabled = !Module;
+                results.style.display = 'none';
+            } catch (err) {
+                alert('Failed to load sample schematic: ' + err.message);
+            } finally {
+                useSampleBtn.disabled = false;
+                useSampleBtn.textContent = 'Use Sample Schematic';
+            }
+        });
+
+        runErcBtn.addEventListener('click', runERC);
+
+        const ERC_TIMEOUT_MS = 60000;
+
+        async function runERC() {
+            if (!Module || !currentSchContent) return;
+
+            runErcBtn.disabled = true;
+            runErcBtn.textContent = 'Loading schematic...';
+            results.style.display = 'none';
+
+            const startTime = performance.now();
+            let timedOut = false;
+            let elapsedInterval = null;
+
+            const timeoutId = setTimeout(() => {
+                timedOut = true;
+                runErcBtn.textContent = 'Timed out - refresh page';
+                moduleStatus.className = 'status error';
+                moduleStatus.innerHTML = '<span>ERC timed out after 60s. The page may need to be refreshed.</span>';
+            }, ERC_TIMEOUT_MS);
+
+            try {
+                const len = Module.lengthBytesUTF8(currentSchContent) + 1;
+                const ptr = Module._malloc(len);
+                Module.stringToUTF8(currentSchContent, ptr, len);
+
+                const rc = Module._kicad_load_schematic(ptr, 0);
+                Module._free(ptr);
+
+                if (rc !== 0) {
+                    throw new Error(`Failed to load schematic (error code: ${rc})`);
+                }
+
+                runErcBtn.textContent = 'Initializing...';
+                await new Promise(r => setTimeout(r, 1000));
+
+                runErcBtn.textContent = 'Running ERC...';
+                elapsedInterval = setInterval(() => {
+                    const elapsed = Math.floor((performance.now() - startTime) / 1000);
+                    runErcBtn.textContent = `Running ERC... (${elapsed}s)`;
+                }, 1000);
+
+                const violationCount = Module._kicad_run_erc();
+
+                clearTimeout(timeoutId);
+                clearInterval(elapsedInterval);
+
+                if (timedOut) return;
+
+                if (violationCount < 0) {
+                    throw new Error('ERC failed to run');
+                }
+
+                const jsonPtr = Module._kicad_get_erc_results();
+                const jsonStr = Module.UTF8ToString(jsonPtr);
+                const ercResults = JSON.parse(jsonStr);
+
+                Module._kicad_cleanup_schematic();
+
+                const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+                console.log(`ERC completed in ${elapsed}s`);
+
+                displayResults(ercResults);
+            } catch (err) {
+                clearTimeout(timeoutId);
+                clearInterval(elapsedInterval);
+                alert('ERC Error: ' + err.message);
+                console.error(err);
+            } finally {
+                if (!timedOut) {
+                    runErcBtn.disabled = false;
+                    runErcBtn.textContent = 'Run ERC Check';
+                }
+            }
+        }
+
+        function displayResults(ercResults) {
+            results.style.display = 'block';
+
+            const sheets = ercResults.sheets || [];
+            let totalViolations = 0;
+            let totalErrors = 0;
+            let totalWarnings = 0;
+
+            for (const sheet of sheets) {
+                const violations = sheet.violations || [];
+                totalViolations += violations.length;
+                totalErrors += violations.filter(v => v.severity === 'error').length;
+                totalWarnings += violations.filter(v => v.severity !== 'error').length;
+            }
+
+            if (totalViolations === 0) {
+                resultsBadge.textContent = 'No violations';
+                resultsBadge.className = 'badge badge-success';
+            } else {
+                resultsBadge.textContent = `${totalErrors} errors, ${totalWarnings} warnings`;
+                resultsBadge.className = totalErrors > 0 ? 'badge badge-error' : 'badge badge-warning';
+            }
+
+            if (totalViolations === 0) {
+                violationsList.innerHTML = `
+                    <div class="no-violations">
+                        <div class="no-violations-icon">&#10003;</div>
+                        <p>No ERC violations found!</p>
+                    </div>
+                `;
+            } else {
+                violationsList.innerHTML = sheets.map(sheet => {
+                    const violations = sheet.violations || [];
+                    if (violations.length === 0) return '';
+                    return `
+                        <div class="sheet-group">
+                            <div class="sheet-header">
+                                <strong>Sheet: ${escapeHtml(sheet.path)}</strong>
+                                <span class="badge badge-${violations.some(v => v.severity === 'error') ? 'error' : 'warning'}">${violations.length} violation${violations.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            ${violations.map(v => `
+                                <div class="violation">
+                                    <div class="violation-header">
+                                        <div class="severity-indicator severity-${v.severity || 'warning'}"></div>
+                                        <div>
+                                            <div class="violation-type">${escapeHtml(v.type)}</div>
+                                            <div class="violation-description">${escapeHtml(v.description)}</div>
+                                        </div>
+                                    </div>
+                                    ${v.items && v.items.length > 0 ? `
+                                        <div class="violation-items">
+                                            ${v.items.map(item => `
+                                                <div class="violation-item">
+                                                    ${escapeHtml(item.description)}
+                                                    ${item.pos ? ` @ (${item.pos.x.toFixed(2)}, ${item.pos.y.toFixed(2)})` : ''}
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            jsonOutput.textContent = JSON.stringify(ercResults, null, 2);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        toggleJson.addEventListener('click', () => {
+            const isHidden = jsonContainer.style.display === 'none';
+            jsonContainer.style.display = isHidden ? 'block' : 'none';
+            toggleJson.textContent = isHidden ? 'Hide raw JSON' : 'Show raw JSON';
+        });
+    </script>
+</body>
+</html>

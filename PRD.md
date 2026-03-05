@@ -173,8 +173,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Create ERC demo page.
 
 **Tasks**:
-- [ ] 3a. Copy sample schematic: `cp samples/erc/with_errors.kicad_sch public/sample.kicad_sch`
-- [ ] 3b. Create `public/erc.html`:
+- [x] 3a. Copy sample schematic: `cp samples/erc/with_errors.kicad_sch public/sample.kicad_sch`
+- [x] 3b. Create `public/erc.html`:
   - Links to `shared.css`, loads `nav.js`
   - Title: "ERC Check — KiCad WASM Tools"
   - Same layout as DRC but accepts `.kicad_sch` files
@@ -183,11 +183,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   - Results grouped by sheet: render sheet path header, then violations under each sheet
   - Violation display same card format as DRC (severity indicator, type, description, items with positions)
   - "Show raw JSON" toggle like DRC page
-- [ ] 3c. Verify ERC works: load page, use sample schematic, run ERC, see violations grouped by sheet
+- [x] 3c. Verify ERC works: load page, use sample schematic, run ERC, see violations grouped by sheet
 
 **Success Criteria**:
-- [ ] ERC page loads module, runs ERC on sample schematic, displays violations by sheet
-- [ ] Nav bar present and highlights "ERC"
+- [x] ERC page loads module, runs ERC on sample schematic, displays violations by sheet
+- [x] Nav bar present and highlights "ERC"
 
 ---
 
@@ -341,7 +341,7 @@ After push, GitLab Pages deploys automatically. URLs:
 
 - [x] **Stage 1**: Shared CSS + nav + hub page
 - [x] **Stage 2**: DRC page works
-- [ ] **Stage 3**: ERC page works
+- [x] **Stage 3**: ERC page works
 - [ ] **Stage 4**: WASM binaries updated
 - [ ] **Stage 5**: STEP page layout + geometry
 - [ ] **Stage 6**: STEP 3D preview works

@@ -20,3 +20,10 @@
 - 2a: Created public/drc.html - moved DRC demo from original index.html, uses shared.css + nav.js, updated module size to 9.6 MB, replaced emoji literals with HTML entities
 - 2b: Verified DRC works - all file references correct (shared.css, nav.js, kicad_drc.mjs, sample.kicad_pcb, coi-serviceworker.js), JS syntax valid, WASM binary exports match API calls, Node.js DRC test passed (4 violations on sample PCB), nav.js highlights active page correctly
 - Stage 2 COMPLETE
+
+### Stage 3 - ERC Demo Page
+- 3a: Copied samples/erc/with_errors.kicad_sch to public/sample.kicad_sch
+- 3b: Created public/erc.html - ERC demo page using shared.css + nav.js, accepts .kicad_sch files, uses ERC WASM API (_kicad_load_schematic, _kicad_run_erc, _kicad_get_erc_results, _kicad_cleanup_schematic), results grouped by sheet with sheet-header styling
+- Added .sheet-group and .sheet-header CSS styles to shared.css for ERC sheet grouping
+- 3c: Verified ERC works - JS syntax valid, all file references correct, ERC WASM API calls present, Node.js ERC test passed (9 violations on sample schematic, grouped in 1 sheet), nav.js highlights ERC page correctly
+- Stage 3 COMPLETE

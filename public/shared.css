@@ -290,6 +290,21 @@ input[type="file"] {
     margin-bottom: 0.25rem;
 }
 
+.sheet-group {
+    margin-bottom: 1.5rem;
+}
+
+.sheet-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: #f1f5f9;
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+}
+
 .no-violations {
     text-align: center;
     padding: 2rem;
