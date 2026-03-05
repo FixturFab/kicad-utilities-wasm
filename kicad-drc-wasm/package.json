@@ -28,7 +28,8 @@
     "test:erc-hierarchical": "node test/test-erc-hierarchical.mjs",
     "test:step-geometry": "node test/test-step-geometry.mjs",
     "test:step-export": "node test/test-step-export.mjs",
-    "test:step-e2e": "node test/test-step-e2e.mjs"
+    "test:step-e2e": "node test/test-step-e2e.mjs",
+    "test:step-parity": "node test/test-step-parity.mjs"
   },
   "license": "GPL-3.0",
   "engines": {

@@ -1,0 +1,75 @@
+(kicad_pcb (version 20240108) (generator "parity-test")
+  (general (thickness 1.6))
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+    (36 "B.SilkS" user "B.Silkscreen")
+    (37 "F.SilkS" user "F.Silkscreen")
+    (38 "B.Mask" user "B.Mask")
+    (39 "F.Mask" user "F.Mask")
+    (44 "Edge.Cuts" user)
+  )
+
+  (setup
+    (stackup
+      (layer "F.SilkS" (type "Top Silk Screen"))
+      (layer "F.Mask" (type "Top Solder Mask") (thickness 0.01))
+      (layer "F.Cu" (type "copper") (thickness 0.035))
+      (layer "dielectric 1" (type "core") (thickness 1.51) (material "FR4") (epsilon_r 4.5) (loss_tangent 0.02))
+      (layer "B.Cu" (type "copper") (thickness 0.035))
+      (layer "B.Mask" (type "Bottom Solder Mask") (thickness 0.01))
+      (layer "B.SilkS" (type "Bottom Silk Screen"))
+      (copper_finish "None")
+      (dielectric_constraints no)
+    )
+  )
+
+  (net 0 "")
+  (net 1 "GND")
+  (net 2 "VCC")
+  (net 3 "SIG")
+
+
+  (gr_rect (start 100 100) (end 150 135) (stroke (width 0.05) (type default)) (fill none) (layer "Edge.Cuts"))
+
+  (gr_rect (start 140 110) (end 144 120) (stroke (width 0.05) (type default)) (fill none) (layer "Edge.Cuts"))
+
+  (footprint "Test:Connector_2pin" (layer "F.Cu")
+    (tstamp 11111111-1111-1111-1111-111111111111)
+    (at 110 110)
+    (property "Reference" "J1")
+    (property "Value" "Conn_01x02")
+    (attr through_hole)
+    (pad "1" thru_hole circle (at 0 0) (size 1.7 1.7) (drill 1.0) (layers "*.Cu" "*.Mask") (net 1 "GND"))
+    (pad "2" thru_hole circle (at 0 2.54) (size 1.7 1.7) (drill 1.0) (layers "*.Cu" "*.Mask") (net 2 "VCC"))
+  )
+
+  (footprint "Test:MountingHole" (layer "F.Cu")
+    (tstamp 22222222-2222-2222-2222-222222222222)
+    (at 105 130)
+    (property "Reference" "H1")
+    (property "Value" "MountingHole")
+    (attr exclude_from_pos_files)
+    (pad "" np_thru_hole circle (at 0 0) (size 3.2 3.2) (drill 3.2) (layers "*.Cu" "*.Mask"))
+  )
+
+  (footprint "Test:R_0805" (layer "F.Cu")
+    (tstamp 33333333-3333-3333-3333-333333333333)
+    (at 125 108)
+    (property "Reference" "R1")
+    (property "Value" "10k")
+    (attr smd)
+    (pad "1" smd roundrect (at -0.9125 0) (size 1.025 1.4) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.243902) (net 2 "VCC"))
+    (pad "2" smd roundrect (at 0.9125 0) (size 1.025 1.4) (layers "F.Cu" "F.Paste" "F.Mask") (roundrect_rratio 0.243902) (net 3 "SIG"))
+  )
+
+  (via (at 120 115) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1))
+  (via (at 130 120) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 2))
+
+  (segment (start 110 110) (end 120 115) (width 0.25) (layer "F.Cu") (net 1))
+  (segment (start 120 115) (end 130 115) (width 0.25) (layer "F.Cu") (net 1))
+  (segment (start 110 112.54) (end 125 108) (width 0.25) (layer "F.Cu") (net 2))
+  (segment (start 125.9125 108) (end 130 120) (width 0.25) (layer "F.Cu") (net 3))
+
+  (segment (start 120 115) (end 130 120) (width 0.25) (layer "B.Cu") (net 1))
+)
