@@ -523,7 +523,7 @@
 
             buildCopperLayerSolids(copperLayer) {
                 const oc = this.oc;
-                const z = copperLayer.z_start_mm;
+                const z = -copperLayer.z_start_mm;
                 const thickness = copperLayer.thickness_mm || 0.035;
                 const solids = [];
 
@@ -562,6 +562,35 @@
                     allSolids.push(...layerSolids);
                 }
                 return allSolids;
+            }
+
+            cutHolesFromCopperSolids(solids) {
+                const oc = this.oc;
+                const holes = this.geometry.holes;
+                if (!holes || holes.length === 0 || solids.length === 0) return solids;
+
+                const boardThickness = this.geometry.board.thickness_mm || 1.6;
+                const cylinders = [];
+                for (const hole of holes) {
+                    const radius = hole.diameter_mm / 2;
+                    if (radius < 0.01) continue;
+                    const z_top = 0.1;
+                    const z_bottom = -(boardThickness + 0.1);
+                    cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
+                }
+
+                if (cylinders.length === 0) return solids;
+
+                let fusedHoles = cylinders[0];
+                for (let i = 1; i < cylinders.length; i++) {
+                    const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+                    fusedHoles = fuse.Shape();
+                }
+
+                return solids.map(solid => {
+                    const cut = new oc.BRepAlgoAPI_Cut_3(solid, fusedHoles);
+                    return cut.Shape();
+                });
             }
 
             writeStep(shape) {
@@ -793,8 +822,17 @@
                 generateStepBtn2.textContent = `Building ${totalPolys} copper polygons...`;
                 await yieldToUI();
                 t1 = performance.now();
-                const copperSolids = builder.buildAllCopperLayers();
+                let copperSolids = builder.buildAllCopperLayers();
                 console.log(`Copper polygons (${totalPolys}): ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+
+                // Cut drill holes from copper
+                if (copperSolids.length > 0 && (geometryData.holes || []).length > 0) {
+                    generateStepBtn2.textContent = 'Cutting holes from copper...';
+                    await yieldToUI();
+                    t1 = performance.now();
+                    copperSolids = builder.cutHolesFromCopperSolids(copperSolids);
+                    console.log(`Copper hole cuts: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+                }
 
                 // Assemble compound
                 generateStepBtn2.textContent = 'Assembling compound...';

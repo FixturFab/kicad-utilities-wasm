@@ -221,7 +221,9 @@ export class StepBuilder {
    */
   buildCopperLayerSolids(copperLayer) {
     const oc = this.oc;
-    const z = copperLayer.z_start_mm;
+    // z_start_mm is a top-down offset from board top surface;
+    // negate to match board body which extrudes from z=0 downward
+    const z = -copperLayer.z_start_mm;
     const thickness = copperLayer.thickness_mm || 0.035;
     const solids = [];
 
@@ -283,7 +285,7 @@ export class StepBuilder {
     const layerZRanges = [];
     for (const layer of copperLayers) {
       if (!layer.polygons || layer.polygons.length === 0) continue;
-      const z_top = layer.z_start_mm;
+      const z_top = -layer.z_start_mm;
       const z_bottom = z_top - (layer.thickness_mm || 0.035);
       layerZRanges.push({ z_top, z_bottom });
     }

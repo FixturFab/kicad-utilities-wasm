@@ -113,9 +113,9 @@ assert(fCuPolys > 0, `F.Cu has copper polygons (${fCuPolys})`);
 assert(bCuPolys > 0, `B.Cu has copper polygons (${bCuPolys})`);
 
 // ══════════════════════════════════════════════════════════════════
-// [2/5] WASM STEP Generation — Board Only
+// [2/6] WASM STEP Generation — Board Only
 // ══════════════════════════════════════════════════════════════════
-console.log('\n[2/5] WASM STEP generation (board only)...');
+console.log('\n[2/6] WASM STEP generation (board only)...');
 
 const { initOpenCascade, StepBuilder } = await import(
   resolve(__dirname, '../src/step-export/step-builder.mjs')
@@ -147,18 +147,88 @@ assert(wasmBoardCylinders === validHoles.length,
   `Board has ${validHoles.length} cylindrical surfaces for holes (got ${wasmBoardCylinders})`);
 
 // ══════════════════════════════════════════════════════════════════
-// [3/5] WASM STEP Generation — Full (Board + Copper)
+// [3/6] Z-Coordinate Validation via Tessellation
 // ══════════════════════════════════════════════════════════════════
-console.log('\n[3/5] WASM STEP generation (full with copper)...');
+console.log('\n[3/6] Z-coordinate validation...');
 
+// Tessellate the board body to extract actual vertex positions
+new oc.BRepMesh_IncrementalMesh_2(boardShape, 0.1, false, 0.5, false);
+const boardZValues = new Set();
+const explorer = new oc.TopExp_Explorer_2(
+  boardShape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+);
+while (explorer.More()) {
+  const face = oc.TopoDS.Face_1(explorer.Current());
+  const location = new oc.TopLoc_Location_1();
+  const handleTri = oc.BRep_Tool.Triangulation(face, location);
+  if (!handleTri.IsNull()) {
+    const tri = handleTri.get();
+    const trsf = location.Transformation();
+    for (let i = 1; i <= tri.NbNodes(); i++) {
+      const pt = tri.Node(i).Transformed(trsf);
+      boardZValues.add(Math.round(pt.Z() * 1000) / 1000); // round to microns
+    }
+  }
+  explorer.Next();
+}
+
+const boardZMin = Math.min(...boardZValues);
+const boardZMax = Math.max(...boardZValues);
+console.log(`  Board Z range: ${boardZMin.toFixed(3)} to ${boardZMax.toFixed(3)} mm`);
+
+// Board body should span from z=0 to z=-thickness (within tolerance)
+assertClose(boardZMax, 0, 0.2, 'Board top surface near z=0');
+assertClose(boardZMin, -geo.board.thickness_mm, 0.2, `Board bottom surface near z=-${geo.board.thickness_mm}`);
+
+// Build copper and check Z positions
 const copperSolids = builder.buildAllCopperLayers();
 assert(copperSolids.length > 0, `Copper solids built (${copperSolids.length})`);
+
+for (let i = 0; i < copperSolids.length; i++) {
+  new oc.BRepMesh_IncrementalMesh_2(copperSolids[i], 0.1, false, 0.5, false);
+  const zVals = new Set();
+  const exp = new oc.TopExp_Explorer_2(
+    copperSolids[i], oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE
+  );
+  while (exp.More()) {
+    const face = oc.TopoDS.Face_1(exp.Current());
+    const loc = new oc.TopLoc_Location_1();
+    const ht = oc.BRep_Tool.Triangulation(face, loc);
+    if (!ht.IsNull()) {
+      const tri = ht.get();
+      const trsf = loc.Transformation();
+      for (let j = 1; j <= tri.NbNodes(); j++) {
+        const pt = tri.Node(j).Transformed(trsf);
+        zVals.add(Math.round(pt.Z() * 1000) / 1000);
+      }
+    }
+    exp.Next();
+  }
+  const zMin = Math.min(...zVals);
+  const zMax = Math.max(...zVals);
+
+  // Every copper solid must be within the board Z range (with small tolerance for extrusion)
+  assert(zMax <= boardZMax + 0.1,
+    `Copper solid ${i} top (z=${zMax.toFixed(3)}) within board range (max=${boardZMax.toFixed(3)})`);
+  assert(zMin >= boardZMin - 0.1,
+    `Copper solid ${i} bottom (z=${zMin.toFixed(3)}) within board range (min=${boardZMin.toFixed(3)})`);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// [4/6] WASM STEP Generation — Full (Board + Copper + Hole Cuts)
+// ══════════════════════════════════════════════════════════════════
+console.log('\n[4/6] WASM STEP generation (full with copper)...');
+
+// Cut holes from copper solids (matching buildAndExport pipeline)
+const copperLayers = (geo.copper_layers || []).filter(l => l.polygons && l.polygons.length > 0);
+const cutCopperSolids = builder.cutHolesFromCopperSolids(copperSolids, copperLayers);
+assert(cutCopperSolids.length === copperSolids.length, 'Copper solid count preserved after hole cuts');
 
 const compound = new oc.TopoDS_Compound();
 const bld = new oc.BRep_Builder();
 bld.MakeCompound(compound);
 bld.Add(compound, boardShape);
-for (const solid of copperSolids) {
+for (const solid of cutCopperSolids) {
   bld.Add(compound, solid);
 }
 
@@ -173,15 +243,16 @@ const wasmFullCylinders = countEntities(wasmFullStepStr, 'CYLINDRICAL_SURFACE');
 console.log(`  WASM full: ${wasmFullStep.length}b, shells=${wasmFullShells}, faces=${wasmFullFaces}, cylinders=${wasmFullCylinders}`);
 
 assert(wasmFullShells > 1, `Full STEP has >1 shells (board + copper) (got ${wasmFullShells})`);
-assert(wasmFullShells === 1 + copperSolids.length,
-  `Full shells = 1 board + ${copperSolids.length} copper (got ${wasmFullShells})`);
+// Full should have more cylinders than board-only (copper also has hole cuts)
+assert(wasmFullCylinders >= wasmBoardCylinders,
+  `Full has >= cylinders than board-only (${wasmFullCylinders} >= ${wasmBoardCylinders})`);
 
 Module._kicad_cleanup();
 
 // ══════════════════════════════════════════════════════════════════
-// [4/5] Native KiCad STEP Export
+// [5/6] Native KiCad STEP Export
 // ══════════════════════════════════════════════════════════════════
-console.log('\n[4/5] Native KiCad STEP export...');
+console.log('\n[5/6] Native KiCad STEP export...');
 
 let nativeBoardStepStr = '';
 let nativeFullStepStr = '';
@@ -230,9 +301,9 @@ if (nativeAvailable) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// [5/5] Parity Comparison
+// [6/6] Parity Comparison
 // ══════════════════════════════════════════════════════════════════
-console.log('\n[5/5] Parity comparison...');
+console.log('\n[6/6] Parity comparison...');
 
 if (nativeAvailable) {
   const nativeBoardShells = countEntities(nativeBoardStepStr, 'CLOSED_SHELL');
