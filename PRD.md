@@ -153,7 +153,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Move existing DRC demo to `drc.html` with shared nav.
 
 **Tasks**:
-- [ ] 2a. Create `public/drc.html`:
+- [x] 2a. Create `public/drc.html`:
   - Links to `shared.css`, loads `nav.js`
   - Title: "DRC Check — KiCad WASM Tools"
   - All DRC HTML structure from current index.html (drop zone, buttons, results, violations list)

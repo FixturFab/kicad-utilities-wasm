@@ -15,3 +15,6 @@
 - 1c: Rewrote public/index.html as hub page with 3 cards (DRC, ERC, STEP), no WASM loading
 - 1d: Verified all files exist, nav.js syntax OK, index.html structure correct, no WASM loading
 - Stage 1 COMPLETE
+
+### Stage 2 - DRC Demo Page
+- 2a: Created public/drc.html - moved DRC demo from original index.html, uses shared.css + nav.js, updated module size to 9.6 MB, replaced emoji literals with HTML entities
