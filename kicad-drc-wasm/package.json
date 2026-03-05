@@ -24,5 +24,8 @@
   "license": "GPL-3.0",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "opencascade.js": "^1.1.1"
   }
 }

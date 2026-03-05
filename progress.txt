@@ -25,3 +25,18 @@
 - ERC regression: 155/155 pass
 - Note: sample board has 3 copper polygons on 1 layer, 0 drill holes (SMD-only design)
 - Stage 2 COMPLETE
+
+### Stage 3 - TypeScript: Board Body STEP Generation
+- 3a: opencascade.js v1.1.1 installed in kicad-drc-wasm/node_modules
+- 3b: Created src/step-export/step-builder.mjs with StepBuilder class and initOpenCascade()
+- 3c: Board outline → wire → face → prism implemented (buildWire, buildBoardBody methods)
+- 3d: Created src/step-export/index.mjs with exportPcbToStep() public API
+- 3e: Created test/test-step-export.mjs with 10 assertions
+- FIXED BLOCKER: STEPControl_Writer.Write() filename garbling
+  - Root cause: opencascade.js SSO bug — filenames >10 chars get garbled via embind string conversion
+  - Fix: use short filename ('out.step', 8 chars) + write to known dir (/home/web_user) + chdir before write
+  - Node.js version is v24.13.1, opencascade.js v1.1.1
+- 3e: test-step-export.mjs passes: 13 assertions (geometry extraction + STEP generation + content validation)
+- ERC regression: 155/155 pass
+- Geometry regression: 72/72 pass
+- Stage 3 COMPLETE

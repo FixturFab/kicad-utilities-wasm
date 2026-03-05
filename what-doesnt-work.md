@@ -105,3 +105,11 @@
 DuplicateSheetNames, ConnectionGraph RunERC, MultiunitFootprints, MissingUnits, MultUnitPinConflicts, DuplicatePinNets, PinToPin, StackedPinNotation, SimilarLabels, GroundPins, SameLocalGlobalLabel, TextVars, FieldNameWhitespace, NoConnectPins, FootprintFilters, OffGridEndpoints, FourWayJunction, LabelMultipleWires, MissingNetclasses.
 
 All differences between WASM and native results are due to the 3 skipped tests above. The test suite (`test/test-erc-suite.mjs`) validates expected WASM results with 155 assertions.
+
+## STEP Export (Stage 3+) - Known Limitations
+
+### opencascade.js SSO filename bug (workaround applied):
+- `STEPControl_Writer.Write(filename)` garbles filenames longer than 10 characters.
+- Root cause: embind string conversion hits a Small String Optimization (SSO) boundary at 10 chars in `TCollection_AsciiString`. Filenames ≤10 chars work correctly; longer ones produce garbled FS entries.
+- Workaround: Use short filenames (e.g., `out.step` = 8 chars) and write to a known writable directory (`/home/web_user`).
+- opencascade.js version: 1.1.1, Node.js v24.13.1.

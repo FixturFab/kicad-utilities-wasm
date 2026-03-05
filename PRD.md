@@ -220,27 +220,27 @@ PAD_ATTRIB PAD::GetAttribute() const; // PTH vs NPTH
 **Goal**: Create TypeScript module that takes geometry JSON and produces a STEP file of the board body using `opencascade.js`.
 
 **Tasks**:
-- [ ] 3a. Add `opencascade.js` dependency:
+- [x] 3a. Add `opencascade.js` dependency:
   - `cd kicad-drc-wasm && npm install opencascade.js`
   - Create `src/step-export/` directory
-- [ ] 3b. Create `src/step-export/step-builder.ts` — main builder class:
+- [x] 3b. Create `src/step-export/step-builder.mjs` — main builder class:
   - `StepBuilder` class that takes geometry JSON
   - Initialize opencascade.js WASM module
   - Method: `buildBoardBody()` → creates board solid from outline
-- [ ] 3c. Implement board outline → STEP solid:
+- [x] 3c. Implement board outline → STEP solid:
   - Polygon vertices → `BRepBuilderAPI_MakeWire` (connect edges with `BRepBuilderAPI_MakeEdge` from `gp_Pnt` pairs)
   - Wire → face via `BRepBuilderAPI_MakeFace`
   - Face → solid prism via `BRepPrimAPI_MakePrism` with board thickness as height vector `gp_Vec(0, 0, thickness_mm)`
   - Handle outline holes: create hole wires, add as inner wires to face
-- [ ] 3d. Create `src/step-export/index.ts` — public API:
+- [x] 3d. Create `src/step-export/index.mjs` — public API:
   ```typescript
   export async function exportPcbToStep(geometryJson: PcbGeometry): Promise<Uint8Array>
   ```
-- [ ] 3e. Create `test/test-step-export.mjs` — test that:
+- [x] 3e. Create `test/test-step-export.mjs` — test that:
   - Loads a .kicad_pcb, gets geometry JSON, builds STEP
   - Verifies output is valid STEP file (starts with "ISO-10303-21")
   - Verifies file size is reasonable (>1KB)
-  - Run: `node --experimental-wasm-threads test/test-step-export.mjs`
+  - Run: `node test/test-step-export.mjs`
 
 **Key opencascade.js APIs**:
 ```typescript
@@ -275,10 +275,10 @@ writer.Write("output.step");
 ```
 
 **Success Criteria**:
-- [ ] Board body STEP file generated from geometry JSON
-- [ ] STEP file is valid (starts with ISO-10303-21 header)
-- [ ] Board outline shape matches input polygon
-- [ ] Test passes
+- [x] Board body STEP file generated from geometry JSON (15.5KB)
+- [x] STEP file is valid (starts with ISO-10303-21 header)
+- [x] Board outline shape matches input polygon
+- [x] Test passes (13 assertions)
 
 ---
 
@@ -507,7 +507,7 @@ From KiCad source:
 After each stage:
 - [x] **Stage 1**: Board outline + stackup + components extracted as JSON
 - [x] **Stage 2**: Copper polygons + drill holes in JSON
-- [ ] **Stage 3**: Board body STEP file generated
+- [x] **Stage 3**: Board body STEP file generated
 - [ ] **Stage 4**: Drill holes cut from board
 - [ ] **Stage 5**: Copper layers added
 - [ ] **Stage 6**: Component models placed
