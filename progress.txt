@@ -1,114 +1,17 @@
-## STEP Export Implementation Progress
+## GitLab Demo Pages Implementation Progress
 
 ### Prerequisites
-- DRC WASM complete (Stage 5g verified)
-- ERC WASM complete (Phase 6 verified, 155 assertions)
-- Build system stable, server has 32GB RAM
+- DRC WASM complete, ERC WASM complete, STEP export complete
+- Existing demo page at public/index.html (DRC-only, 720 lines)
+- WASM binary in public/ is outdated (7.3MB DRC-only), current build at kicad-drc-wasm/build-wasm-erc/ (9.6MB DRC+ERC+geometry)
+- opencascade.js v1.1.1 installed at kicad-drc-wasm/node_modules/opencascade.js/dist/
+- Sample PCB at public/sample.kicad_pcb, sample schematics at samples/erc/
+- Step-builder.mjs uses Node.js APIs — must be adapted for browser (inline in step.html)
+- opencascade.js SSO bug: filenames >10 chars get garbled, use short names like 'out.step'
 
-### Stage 1 - C API: Board Outline + Stackup + Components
-- 1a: Added kicad_get_pcb_geometry() declaration to kicad_drc_api.h
-- 1b: Implemented board outline extraction (SHAPE_POLY_SET → JSON polygons with holes)
-- 1c: Implemented stackup extraction (BOARD_STACKUP items → JSON with type, thickness, z_offset, material, epsilon_r)
-- 1d: Implemented component extraction (footprints → JSON with reference, position, rotation, side, 3D models)
-- 1e: Added _kicad_get_pcb_geometry to EXPORTED_FUNCTIONS in CMakeLists.txt line 733
-- 1f: WASM build successful (exit code 0, no new errors)
-- 1g: Created test-step-geometry.mjs - 56 assertions, all pass
-- ERC regression: 155/155 pass
+### Stage 1 - Shared CSS + Nav Bar + Hub Page
+- 1a: Created public/shared.css with all styles extracted from index.html + nav bar styles + hub card styles
+- 1b: Created public/nav.js - injects nav bar with 4 links, highlights active page
+- 1c: Rewrote public/index.html as hub page with 3 cards (DRC, ERC, STEP), no WASM loading
+- 1d: Verified all files exist, nav.js syntax OK, index.html structure correct, no WASM loading
 - Stage 1 COMPLETE
-
-### Stage 2 - C API: Copper Polygons + Holes
-- 2a: Implemented copper polygon extraction (per-layer pad/track/zone → SHAPE_POLY_SET → JSON)
-- 2b: Implemented drill hole extraction (pad holes + via holes → JSON with type, position, diameter, layers)
-- Added pad.h, pcb_track.h, zone.h, lset.h includes
-- Build successful (exit code 0)
-- 2c: Updated test-step-geometry.mjs with copper + holes validation (72 assertions pass)
-- ERC regression: 155/155 pass
-- Note: sample board has 3 copper polygons on 1 layer, 0 drill holes (SMD-only design)
-- Stage 2 COMPLETE
-
-### Stage 3 - TypeScript: Board Body STEP Generation
-- 3a: opencascade.js v1.1.1 installed in kicad-drc-wasm/node_modules
-- 3b: Created src/step-export/step-builder.mjs with StepBuilder class and initOpenCascade()
-- 3c: Board outline → wire → face → prism implemented (buildWire, buildBoardBody methods)
-- 3d: Created src/step-export/index.mjs with exportPcbToStep() public API
-- 3e: Created test/test-step-export.mjs with 10 assertions
-- FIXED BLOCKER: STEPControl_Writer.Write() filename garbling
-  - Root cause: opencascade.js SSO bug — filenames >10 chars get garbled via embind string conversion
-  - Fix: use short filename ('out.step', 8 chars) + write to known dir (/home/web_user) + chdir before write
-  - Node.js version is v24.13.1, opencascade.js v1.1.1
-- 3e: test-step-export.mjs passes: 13 assertions (geometry extraction + STEP generation + content validation)
-- ERC regression: 155/155 pass
-- Geometry regression: 72/72 pass
-- Stage 3 COMPLETE
-
-### Stage 4 - TypeScript: Drill Holes
-- 4a: Implemented buildHoleCylinder() in step-builder.mjs (BRepPrimAPI_MakeCylinder_2 with gp_Ax2_3)
-- 4b: Implemented cutDrillHoles() with fuse-then-cut strategy (BRepAlgoAPI_Fuse + BRepAlgoAPI_Cut)
-- Updated buildAndExport() to accept options.includeDrillHoles (default: true)
-- Updated index.mjs to pass options through to builder
-- Verified existing Stage 3 test still passes (SMD-only board, 0 holes, 13 assertions)
-- Fixed constructor names: BRepPrimAPI_MakeCylinder_3 (not _2), BRepAlgoAPI_Cut_3/Fuse_3 take 2 args (no Message_ProgressRange)
-- 4c: Updated test-step-export.mjs with Stage 4 drill holes section (synthetic geometry with 3 holes)
-- Test validates: STEP size increases with holes, CYLINDRICAL_SURFACE present, 0-hole boards still work
-- Test passes: 23 assertions (13 Stage 3 + 10 Stage 4)
-- Geometry regression: 72/72 pass
-- ERC regression: 155/155 pass
-- Stage 4 COMPLETE
-
-### Stage 5 - TypeScript: Copper Layers
-- 5a: Implemented buildCopperLayerSolids() in step-builder.mjs (polygon→wire→face→prism at z_start_mm)
-- 5b: Z positioning uses z_start_mm from copper layer data, extrudes downward by thickness_mm
-- 5c: Implemented cutHolesFromCopperSolids() - fuse-then-cut strategy for each copper solid
-- 5d: Implemented compound assembly (BRep_Builder + TopoDS_Compound) - board body + all copper solids
-- Added degenerate edge skip in buildWire() to handle copper polygons with duplicate vertices
-- 5e: Updated test-step-export.mjs with Stage 5 section (38 assertions total, all pass)
-  - Synthetic geometry: 50x30mm board, F.Cu + B.Cu copper layers, 2 drill holes
-  - Validates: compound has more CLOSED_SHELLs with copper, holes cut from copper, empty copper OK
-  - Real PCB test: copper adds geometry to STEP output
-- Geometry regression: 72/72 pass
-- ERC regression: 155/155 pass
-- Stage 5 COMPLETE
-
-### Stage 6a - TypeScript: STEP Model Reader + ModelResolver
-- Added readStepModel(data) to StepBuilder: writes Uint8Array to virtual FS, reads with STEPControl_Reader, returns shape or null
-- Added loadComponentModels(modelResolver) async method: iterates components/models, calls resolver, loads shapes
-- Made buildAndExport() async, added includeComponents + modelResolver options
-- Updated index.mjs JSDoc for new options
-- STEPControl_Reader round-trip verified: ReadFile status.value === 1 means IFSelect_RetDone
-- Invalid STEP data returns null gracefully (no crash)
-- Missing models (resolver returns null) are skipped without error
-- No modelResolver provided → components silently skipped
-- Updated test-step-export.mjs: 13 new assertions (readStepModel valid/invalid, ModelResolver integration, missing models, no resolver)
-- Test passes: 51 assertions (38 Stage 3-5 + 13 Stage 6a)
-- Geometry regression: 72/72 pass
-- ERC regression: 155/155 pass
-- Stage 6a COMPLETE
-
-### Stage 6b - TypeScript: Placement Transform
-- Added computePlacementTransform() replicating KiCad's getModelLocation() from step_pcb_model.cpp
-- Transform order: position(x,-y,0) → board rotation(Z) → bottom flip(X,PI) → offset(+surface_z) → orient(-Z,-Y,-X)
-- opencascade.js API: gp_Trsf_1(), SetTranslation_1(vec), SetRotation_1(ax1, angle), Multiply(trsf)
-- BRepBuilderAPI_Transform_2(shape, trsf, true) applies transform to shape
-- Added transformShape() with uniform scale support via SetScale()
-- Updated buildAndExport() compound assembly to apply placement transforms to loaded models
-- SetScale(gp_Pnt, scale) works for uniform scale of component models
-- 6b tests: top/bottom placement, offset+orientation, multiple components, scale, direct transform verification, full pipeline
-- Test passes: 73 assertions (51 Stage 3-6a + 22 Stage 6b)
-- Geometry regression: 72/72 pass
-- ERC regression: 155/155 pass
-- Verified transform positions: top Z=0.085 (copper 0.035 + BOARD_OFFSET 0.05), bottom Z=-1.685
-- Stage 6b COMPLETE
-- Stage 6 COMPLETE (all substages: 6a reader + 6b placement + 6c compound assembly)
-
-### Stage 7 - Public API + Integration
-- 7a: exportPcbToStep() API already implemented in src/step-export/index.mjs (complete)
-- 7b: Updated types/kicad-wasm.d.ts: added _kicad_get_pcb_geometry to KicadWasmModule, PcbGeometry types, StepExportOptions, ModelResolver, exportPcbToStep
-- 7c: Updated package.json: added step-export to exports map, step test scripts, step-export source files
-- 7d: Created test/test-step-e2e.mjs end-to-end test (26 assertions, all pass)
-- 7e: All tests pass:
-  - E2E test: 26/26 pass
-  - STEP export test: 73/73 pass
-  - Geometry test: 72/72 pass
-  - ERC regression: 155/155 pass
-- Stage 7 COMPLETE
-- ALL STAGES COMPLETE (1-7)

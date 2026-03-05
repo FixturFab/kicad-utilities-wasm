@@ -1,514 +1,348 @@
-# KiCad STEP Export via WASM - Product Requirements Document
+# GitLab Demo Pages — DRC + ERC + STEP Export
 
 ## Overview
 
-**Project Goal**: Extract PCB geometry from KiCad's BOARD as JSON via WASM, then construct 3D STEP files in TypeScript using `opencascade.js`.
+Multi-page GitLab Pages demo showcasing all three KiCad WASM features: DRC, ERC, and STEP Export with 3D preview.
 
-**Architecture**: Two-layer approach:
-1. **C API** (WASM) — `kicad_get_pcb_geometry()` extracts board outline, stackup, copper, holes, and component placement as JSON
-2. **TypeScript** — `opencascade.js` constructs 3D geometry from JSON and writes STEP files
+**Architecture**: Four HTML pages in `public/` sharing a nav bar and CSS design system. The STEP page uses opencascade.js for STEP construction + tessellation, three.js (CDN) for 3D rendering.
 
-**Why not compile KiCad's STEP exporter directly?** KiCad's native STEP exporter (`step_pcb_model.cpp`) has 183+ OpenCASCADE Technology (OCCT) class references deeply coupled to C++. Compiling OCCT to WASM is impractical. Instead, we extract geometry data and use the existing `opencascade.js` npm package.
-
-**Target Environments**: Browser and Node.js (same as DRC/ERC)
+**Existing demo**: `public/index.html` is a single-page DRC-only demo (720 lines). The WASM binary in `public/` is outdated (DRC-only, 7.3MB). Current build at `kicad-drc-wasm/build-wasm-erc/` has DRC+ERC+geometry APIs (9.6MB).
 
 ---
 
-## Reference Code
+## Key Files
 
-| Source File | Purpose |
-|-------------|---------|
-| `kicad-test/kicad-src/pcbnew/exporters/step/exporter_step.cpp` | Main export logic, geometry extraction flow |
-| `kicad-test/kicad-src/pcbnew/exporters/step/step_pcb_model.cpp` | 3D model construction, `getModelLocation()` |
-| `kicad-test/kicad-src/pcbnew/board.h` | BOARD class, `GetBoardPolygonOutlines()`, `Footprints()` |
-| `kicad-test/kicad-src/pcbnew/board_stackup_manager/board_stackup.h` | Stackup layer data |
-| `kicad-test/kicad-src/libs/kimath/include/geometry/shape_poly_set.h` | Polygon data structure |
-| `kicad-test/kicad-src/pcbnew/pad.h` | PAD class, hole data |
+| File | Purpose |
+|------|---------|
+| `public/index.html` | Current DRC demo → rewrite as hub page |
+| `public/shared.css` | New — shared styles extracted from index.html |
+| `public/nav.js` | New — shared nav bar injected via JS |
+| `public/drc.html` | New — DRC demo (moved from index.html) |
+| `public/erc.html` | New — ERC demo |
+| `public/step.html` | New — STEP export with 3D preview |
+| `public/kicad_drc.mjs` | Update from build-wasm-erc/ |
+| `public/kicad_drc.wasm` | Update from build-wasm-erc/ |
+| `public/opencascade.wasm.js` | Copy from node_modules/opencascade.js/dist/ |
+| `public/opencascade.wasm.wasm` | Copy from node_modules/opencascade.js/dist/ (~63MB) |
+| `public/sample.kicad_sch` | Copy from samples/erc/with_errors.kicad_sch |
+| `public/sample.kicad_pcb` | Already exists |
+| `public/coi-serviceworker.js` | Already exists (SharedArrayBuffer) |
+| `public/_headers` | Already exists (COOP/COEP) |
 
----
+## Design Tokens (from existing demo)
 
-## JSON Geometry Schema
+```css
+--primary: #2563eb;  --primary-dark: #1d4ed8;
+--success: #16a34a;  --warning: #ca8a04;  --error: #dc2626;
+--bg: #f8fafc;  --card: #ffffff;  --text: #1e293b;
+--text-muted: #64748b;  --border: #e2e8f0;
+```
 
-The `kicad_get_pcb_geometry()` function returns JSON with this structure:
+## WASM API Reference
+
+```
+DRC:  _kicad_load_pcb(ptr, 0), _kicad_run_drc(), _kicad_get_drc_results(), _kicad_cleanup()
+ERC:  _kicad_load_schematic(ptr, 0), _kicad_run_erc(), _kicad_get_erc_results(), _kicad_cleanup_schematic()
+STEP: _kicad_load_pcb(ptr, 0), _kicad_get_pcb_geometry(), _kicad_cleanup()
+      + opencascade.js for STEP construction + tessellation
+      + three.js for 3D rendering
+```
+
+## ERC JSON Structure (differs from DRC)
 
 ```json
 {
-  "format_version": 1,
-  "units": "mm",
-  "board": {
-    "outline": {
-      "polygons": [
-        {
-          "outline": [[x, y], [x, y], ...],
-          "holes": [[[x, y], [x, y], ...], ...]
-        }
-      ]
-    },
-    "thickness_mm": 1.6
-  },
-  "stackup": [
+  "sheets": [
     {
-      "type": "copper|dielectric|soldermask|silkscreen|solderpaste",
-      "layer_id": "F.Cu",
-      "thickness_mm": 0.035,
-      "z_offset_mm": 0.0,
-      "material": "copper",
-      "epsilon_r": 4.5
-    }
-  ],
-  "copper_layers": [
-    {
-      "layer_id": "F.Cu",
-      "z_start_mm": 0.0,
-      "thickness_mm": 0.035,
-      "polygons": [
-        {
-          "net": "GND",
-          "outline": [[x, y], ...],
-          "holes": [[[x, y], ...]]
-        }
-      ]
-    }
-  ],
-  "holes": [
-    {
-      "type": "pth|npth",
-      "x_mm": 10.0,
-      "y_mm": 20.0,
-      "diameter_mm": 0.3,
-      "top_layer": "F.Cu",
-      "bottom_layer": "B.Cu",
-      "plating_thickness_mm": 0.025
-    }
-  ],
-  "components": [
-    {
-      "reference": "U1",
-      "footprint": "Package_SO:SOIC-8",
-      "position": { "x_mm": 50.0, "y_mm": 30.0 },
-      "rotation_deg": 0.0,
-      "side": "top|bottom",
-      "models": [
-        {
-          "filename": "Package_SO.3dshapes/SOIC-8.step",
-          "offset": { "x_mm": 0, "y_mm": 0, "z_mm": 0 },
-          "rotation": { "x_deg": 0, "y_deg": 0, "z_deg": 0 },
-          "scale": { "x": 1, "y": 1, "z": 1 }
-        }
+      "path": "/",
+      "uuid_path": "/uuid",
+      "violations": [
+        { "type": "pin_not_connected", "severity": "error", "description": "...", "items": [...] }
       ]
     }
   ]
 }
 ```
 
+Note: ERC groups violations by sheet. DRC has flat `violations[]` array.
+
+## STEP Page — Browser-Adapted Code
+
+The existing `kicad-drc-wasm/src/step-export/step-builder.mjs` uses Node.js APIs (`createRequire`, `readFileSync`, `fs`). For the browser, inline adapted versions of:
+
+- `initOpenCascade()` — use `import('./opencascade.wasm.js')` instead of `require()`
+- `StepBuilder.buildWire()` — unchanged
+- `StepBuilder.buildBoardBody()` — unchanged
+- `StepBuilder.cutDrillHoles()` — unchanged
+- `StepBuilder.buildCopperLayerSolids()` — unchanged
+- `StepBuilder.writeStep()` — simplified, use `oc.FS` only (no Node.js fs fallback)
+
+Skip component model loading for the demo (would need user to upload .step files).
+
+## Tessellation for 3D Preview
+
+After building the STEP shape, tessellate with opencascade.js and render with three.js:
+
+```javascript
+// Tessellate
+new oc.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false);
+
+// Extract triangles from each face
+const explorer = new oc.TopExp_Explorer_2(shape, oc.TopAbs_ShapeEnum.TopAbs_FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+while (explorer.More()) {
+    const face = oc.TopoDS.Face_1(explorer.Current());
+    const location = new oc.TopLoc_Location_1();
+    const triangulation = oc.BRep_Tool.Triangulation(face, location);
+    if (!triangulation.IsNull()) {
+        const tri = triangulation.get();
+        // tri.NbNodes(), tri.Node(i) → vertices
+        // tri.NbTriangles(), tri.Triangle(i) → indices
+        // face.Orientation_1() → check if reversed
+    }
+    explorer.Next();
+}
+```
+
+three.js setup:
+```javascript
+// Import via import map (no bundler)
+// <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/" } }</script>
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// Scene: dark background (#1e293b), ambient + 2 directional lights
+// Material: green PCB (0x2d8a4e), MeshPhongMaterial
+// Camera: PerspectiveCamera, fit to bounding box
+// Controls: OrbitControls with damping
+```
+
 ---
 
 ## Stages
 
-### Stage 1: C API — Board Outline + Stackup + Components
+### Stage 1: Shared CSS + Nav Bar + Hub Page
 
-**Goal**: Add `kicad_get_pcb_geometry()` to the WASM API that extracts board outline, stackup, and component placement as JSON.
-
-**Tasks**:
-- [x] 1a. Add `kicad_get_pcb_geometry()` declaration to `kicad-drc-wasm/include/kicad_drc_api.h`
-- [x] 1b. Implement board outline extraction in `kicad-drc-wasm/src/api.cpp`:
-  - Call `g_board->GetBoardPolygonOutlines()` to get `SHAPE_POLY_SET`
-  - Iterate `OutlineCount()` polygons, each with `CPolygon(idx)[0]` outline and `CPolygon(idx)[1..n]` holes
-  - Convert `VECTOR2I` vertices to mm using `pcbIUScale.IUTomm()`
-  - Output as JSON polygon arrays
-- [x] 1c. Implement stackup extraction:
-  - Call `g_board->GetStackupOrDefault()` to get `BOARD_STACKUP`
-  - Iterate `GetCount()` items, extracting type, layer_id, thickness, material, epsilon_r
-  - Get total board thickness from `BuildBoardThicknessFromStackup()`
-  - Calculate Z offsets for each layer (accumulate from top)
-  - Include copper layer count from `g_board->GetCopperLayerCount()`
-- [x] 1d. Implement component extraction:
-  - Iterate `g_board->Footprints()` for each `FOOTPRINT*`
-  - Extract: `GetReference()`, `GetPosition()` (convert to mm), `GetOrientation().AsDegrees()`, `GetLayer()` (top/bottom)
-  - For each `footprint->Models()`: extract `m_Filename`, `m_Offset`, `m_Rotation`, `m_Scale`, `m_Show`
-- [x] 1e. Add `"_kicad_get_pcb_geometry"` to EXPORTED_FUNCTIONS in CMakeLists.txt line 733
-- [x] 1f. Build WASM and verify compilation succeeds
-- [x] 1g. Create `test/test-step-geometry.mjs` — Node.js test that:
-  - Loads a sample .kicad_pcb file
-  - Calls `kicad_get_pcb_geometry()`
-  - Validates JSON structure (outline exists, stackup has layers, components listed)
-  - Validates board outline has >3 vertices
-  - Validates stackup has at least 2 copper layers
-  - Run: `node --experimental-wasm-threads test/test-step-geometry.mjs`
-
-**Key KiCad APIs**:
-```cpp
-// Board outline
-bool BOARD::GetBoardPolygonOutlines(SHAPE_POLY_SET& aOutlines, ...);
-
-// Stackup
-BOARD_STACKUP BOARD::GetStackupOrDefault();
-int BOARD::GetCopperLayerCount() const;
-int BOARD_STACKUP::BuildBoardThicknessFromStackup() const;
-
-// Components
-const FOOTPRINTS& BOARD::Footprints() const;
-const std::vector<FP_3DMODEL>& FOOTPRINT::Models();
-
-// Unit conversion
-double pcbIUScale.IUTomm(int aValue);
-```
-
-**Success Criteria**:
-- [x] `kicad_get_pcb_geometry()` returns valid JSON with board outline, stackup, and components
-- [x] Test passes: `node test/test-step-geometry.mjs` (56 assertions)
-- [x] ERC regression: `node test/test-erc-suite.mjs` still passes (155 assertions)
-
----
-
-### Stage 2: C API — Copper Polygons + Holes
-
-**Goal**: Extend `kicad_get_pcb_geometry()` to include copper layer polygons and drill holes.
+**Goal**: Extract shared styles, create nav bar component, rewrite index.html as hub.
 
 **Tasks**:
-- [x] 2a. Implement copper polygon extraction in `api.cpp`:
-  - For each copper layer (F.Cu, In1.Cu, ..., B.Cu):
-    - Call `pad->TransformShapeToPolygon()` for all pads on this layer
-    - Call `track->TransformShapeToPolygon()` for all tracks on this layer
-    - Call `zone->TransformSolidAreasShapesToPolygon()` for filled zones
-    - Merge into `SHAPE_POLY_SET`, call `Simplify()`
-    - Serialize polygon outlines + holes as JSON arrays
-  - Group polygons by net name using `pad->GetNetname()`, `track->GetNetname()`, `zone->GetNetname()`
-  - Calculate Z start position and thickness for each copper layer from stackup
-- [x] 2b. Implement drill hole extraction:
-  - Iterate pads: `pad->HasHole()`, `pad->GetEffectiveHoleShape()`, `pad->GetDrillSizeX()`
-  - Iterate vias: same hole extraction, plus `via->GetTopLayer()`, `via->GetBottomLayer()`
-  - Classify as PTH vs NPTH from `pad->GetAttribute()`
-  - Extract plating thickness (default 0.025mm for PTH)
-  - Output hole center (x,y in mm), diameter, layer span, type
-- [x] 2c. Update test to validate:
-  - Copper layer polygons exist and have vertices
-  - Hole data present with valid diameters
-  - At least one PTH hole if board has through-hole components
-  - Net names associated with copper polygons
-
-**Key KiCad APIs**:
-```cpp
-// Pad polygon
-void PAD::TransformShapeToPolygon(SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
-                                   int aClearance, int aMaxError, ERROR_LOC aLoc);
-
-// Track polygon
-void PCB_TRACK::TransformShapeToPolygon(SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
-                                         int aClearance, int aMaxError, ERROR_LOC aLoc);
-
-// Zone fill polygons
-void ZONE::TransformSolidAreasShapesToPolygon(PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aBuffer);
-
-// Hole data
-bool PAD::HasHole() const;
-std::shared_ptr<SHAPE_SEGMENT> PAD::GetEffectiveHoleShape();
-int PAD::GetDrillSizeX() const;
-PAD_ATTRIB PAD::GetAttribute() const; // PTH vs NPTH
-```
-
-**Success Criteria**:
-- [x] JSON includes copper layer polygons (grouped per layer with z_start and thickness)
-- [x] JSON includes drill hole data with positions and diameters
-- [x] Test passes with expanded assertions (72 assertions)
-- [x] ERC regression passes (155 assertions)
-
----
-
-### Stage 3: TypeScript — Board Body STEP Generation
-
-**Goal**: Create TypeScript module that takes geometry JSON and produces a STEP file of the board body using `opencascade.js`.
-
-**Tasks**:
-- [x] 3a. Add `opencascade.js` dependency:
-  - `cd kicad-drc-wasm && npm install opencascade.js`
-  - Create `src/step-export/` directory
-- [x] 3b. Create `src/step-export/step-builder.mjs` — main builder class:
-  - `StepBuilder` class that takes geometry JSON
-  - Initialize opencascade.js WASM module
-  - Method: `buildBoardBody()` → creates board solid from outline
-- [x] 3c. Implement board outline → STEP solid:
-  - Polygon vertices → `BRepBuilderAPI_MakeWire` (connect edges with `BRepBuilderAPI_MakeEdge` from `gp_Pnt` pairs)
-  - Wire → face via `BRepBuilderAPI_MakeFace`
-  - Face → solid prism via `BRepPrimAPI_MakePrism` with board thickness as height vector `gp_Vec(0, 0, thickness_mm)`
-  - Handle outline holes: create hole wires, add as inner wires to face
-- [x] 3d. Create `src/step-export/index.mjs` — public API:
-  ```typescript
-  export async function exportPcbToStep(geometryJson: PcbGeometry): Promise<Uint8Array>
+- [x] 1a. Create `public/shared.css` — extract all CSS from current `public/index.html` `<style>` block, add nav bar styles:
+  ```css
+  .nav { display: flex; gap: 0; background: var(--card); border-bottom: 1px solid var(--border); margin-bottom: 2rem; border-radius: 12px 12px 0 0; overflow: hidden; }
+  .nav a { padding: 0.75rem 1.5rem; text-decoration: none; color: var(--text-muted); font-weight: 500; font-size: 0.95rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .nav a:hover { color: var(--text); background: var(--bg); }
+  .nav a.active { color: var(--primary); border-bottom-color: var(--primary); }
   ```
-- [x] 3e. Create `test/test-step-export.mjs` — test that:
-  - Loads a .kicad_pcb, gets geometry JSON, builds STEP
-  - Verifies output is valid STEP file (starts with "ISO-10303-21")
-  - Verifies file size is reasonable (>1KB)
-  - Run: `node test/test-step-export.mjs`
-
-**Key opencascade.js APIs**:
-```typescript
-import initOpenCascade from 'opencascade.js';
-const oc = await initOpenCascade();
-
-// Point
-const pt = new oc.gp_Pnt_3(x, y, z);
-
-// Edge from two points
-const edge = new oc.BRepBuilderAPI_MakeEdge_24(pt1, pt2);
-
-// Wire from edges
-const wireMaker = new oc.BRepBuilderAPI_MakeWire_1();
-wireMaker.Add_1(edge.Edge());
-const wire = wireMaker.Wire();
-
-// Face from wire
-const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(wire, true);
-const face = faceMaker.Face();
-
-// Prism (extrude face along vector)
-const vec = new oc.gp_Vec_4(0, 0, thickness);
-const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
-const solid = prism.Shape();
-
-// Write STEP
-const writer = new oc.STEPControl_Writer_1();
-writer.Transfer(solid, oc.STEPControl_StepModelType.STEPControl_AsIs, true);
-writer.Write("output.step");
-// Read from virtual FS: oc.FS.readFile("output.step")
-```
+- [x] 1b. Create `public/nav.js` — injects nav bar at top of `.container`, highlights active page. Pages: Overview (index.html), DRC (drc.html), ERC (erc.html), STEP Export (step.html).
+- [x] 1c. Rewrite `public/index.html` as hub page:
+  - Links to `shared.css`, loads `nav.js`
+  - Title: "KiCad WASM Tools"
+  - Subtitle: "PCB and schematic validation in the browser, powered by WebAssembly"
+  - Three cards linking to DRC, ERC, STEP Export with icons and descriptions
+  - Does NOT load any WASM module
+- [x] 1d. Verify index.html loads correctly (no JS errors, nav renders)
 
 **Success Criteria**:
-- [x] Board body STEP file generated from geometry JSON (15.5KB)
-- [x] STEP file is valid (starts with ISO-10303-21 header)
-- [x] Board outline shape matches input polygon
-- [x] Test passes (13 assertions)
+- [x] `shared.css` contains all design tokens and component styles
+- [x] `nav.js` renders nav with 4 links, highlights current page
+- [x] `index.html` is a clean hub with no WASM loading
 
 ---
 
-### Stage 4: TypeScript — Drill Holes
+### Stage 2: DRC Demo Page
 
-**Goal**: Boolean-cut drill holes from the board body.
+**Goal**: Move existing DRC demo to `drc.html` with shared nav.
 
 **Tasks**:
-- [x] 4a. Implement cylinder creation for each hole:
-  - `BRepPrimAPI_MakeCylinder` with hole radius and full board height
-  - Position cylinder at hole center using `gp_Ax2` (axis at hole x,y, direction along Z)
-  - Handle blind/buried vias: cylinder height matches layer span, not full board
-- [x] 4b. Implement boolean subtraction:
-  - `BRepAlgoAPI_Cut` to subtract each cylinder from board body
-  - Process holes in batches to avoid performance issues
-  - Fuse all hole cylinders first with `BRepAlgoAPI_Fuse`, then single cut operation
-- [x] 4c. Update test to verify:
-  - Board body has holes after boolean cut
-  - STEP file size increases (more geometry)
-
-**Key opencascade.js APIs**:
-```typescript
-// Cylinder at position
-const axis = new oc.gp_Ax2_3(
-    new oc.gp_Pnt_3(x, y, z_bottom),
-    new oc.gp_Dir_4(0, 0, 1)
-);
-const cyl = new oc.BRepPrimAPI_MakeCylinder_2(axis, radius, height);
-
-// Boolean cut
-const cut = new oc.BRepAlgoAPI_Cut_3(boardSolid, cyl.Shape(), new oc.Message_ProgressRange_1());
-const result = cut.Shape();
-
-// Fuse multiple shapes
-const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRange_1());
-```
+- [ ] 2a. Create `public/drc.html`:
+  - Links to `shared.css`, loads `nav.js`
+  - Title: "DRC Check — KiCad WASM Tools"
+  - All DRC HTML structure from current index.html (drop zone, buttons, results, violations list)
+  - All DRC JavaScript from current index.html (loadModule, handleFile, runDRC, displayResults, escapeHtml)
+  - Module status shows "Loading WASM module (9.6 MB)..."
+  - Uses `./kicad_drc.mjs` for module import, `./` + path for locateFile
+- [ ] 2b. Verify DRC works: load page, click "Use Sample PCB", run DRC, see violations
 
 **Success Criteria**:
-- [x] Holes are cut from board body
-- [x] STEP file correctly shows through-holes
-- [x] Test passes
+- [ ] DRC page loads module, runs DRC on sample PCB, displays violations
+- [ ] Nav bar present and highlights "DRC"
 
 ---
 
-### Stage 5: TypeScript — Copper Layers
+### Stage 3: ERC Demo Page
 
-**Goal**: Add copper layer extrusions to the STEP model.
+**Goal**: Create ERC demo page.
 
 **Tasks**:
-- [x] 5a. Implement copper polygon → thin solid extrusion:
-  - For each copper layer in geometry JSON:
-    - Build wire from polygon vertices (same as board outline)
-    - Create face from wire
-    - Extrude with copper thickness (default 0.035mm) at correct Z offset
-  - Handle polygon holes (pad clearances): add inner wires to face
-- [x] 5b. Position copper layers at correct Z:
-  - Use stackup Z offsets from geometry JSON
-  - F.Cu at top of board, B.Cu at bottom
-  - Inner copper at intermediate Z positions
-- [x] 5c. Cut drill holes from copper layers:
-  - Same cylinder subtraction as board body
-  - Only cut layers that the hole spans
-- [x] 5d. Assemble into compound:
-  - `BRep_Builder` + `TopoDS_Compound` to combine board body + all copper layers
-  - Each copper layer as a separate shape in compound (for per-layer coloring in STEP viewers)
-- [x] 5e. Update test to verify:
-  - Multiple shapes in STEP compound
-  - Copper layer count matches input
+- [ ] 3a. Copy sample schematic: `cp samples/erc/with_errors.kicad_sch public/sample.kicad_sch`
+- [ ] 3b. Create `public/erc.html`:
+  - Links to `shared.css`, loads `nav.js`
+  - Title: "ERC Check — KiCad WASM Tools"
+  - Same layout as DRC but accepts `.kicad_sch` files
+  - "Use Sample Schematic" button loads `sample.kicad_sch`
+  - Uses ERC WASM API: `_kicad_load_schematic`, `_kicad_run_erc`, `_kicad_get_erc_results`, `_kicad_cleanup_schematic`
+  - Results grouped by sheet: render sheet path header, then violations under each sheet
+  - Violation display same card format as DRC (severity indicator, type, description, items with positions)
+  - "Show raw JSON" toggle like DRC page
+- [ ] 3c. Verify ERC works: load page, use sample schematic, run ERC, see violations grouped by sheet
 
 **Success Criteria**:
-- [x] Copper layers visible as thin extrusions at correct Z positions
-- [x] Holes cut from copper where appropriate
-- [x] All layers assembled in compound shape
-- [x] Test passes (38 assertions)
+- [ ] ERC page loads module, runs ERC on sample schematic, displays violations by sheet
+- [ ] Nav bar present and highlights "ERC"
 
 ---
 
-### Stage 6: TypeScript — 3D Component Model Loading
+### Stage 4: Update WASM Binary + Copy opencascade.js
 
-**Goal**: Load component STEP files and place them at correct positions on the board.
-
-**Tasks**:
-- [x] 6a. Implement STEP model reader:
-  - `STEPControl_Reader` to load component .step files
-  - `ModelResolver` interface for callers to provide STEP file data:
-    ```typescript
-    interface ModelResolver {
-      resolve(filename: string): Promise<Uint8Array | null>;
-    }
-    ```
-  - Handle missing models gracefully (skip, don't fail)
-- [x] 6b. Implement placement transform replicating `getModelLocation()` from step_pcb_model.cpp:
-  - Translation to footprint position on board (x, y, z_surface)
-  - Rotation by footprint angle
-  - Flip for bottom-side components (180deg X rotation)
-  - Apply model offset (x, y, z)
-  - Apply model rotation (z, y, x — Euler order)
-  - Apply model scale
-  - KiCad Y-axis inversion: negate Y in position
-  - Z-position: top surface for top-side, bottom surface for bottom-side
-- [x] 6c. Add placed models to compound:
-  - Transform each model shape with `BRepBuilderAPI_Transform`
-  - Add to the compound alongside board body and copper
-
-**Key transform order** (from `step_pcb_model.cpp:getModelLocation`):
-1. Position: `gp_Trsf.SetTranslation(gp_Vec(x, -y, z_surface))`
-2. Board rotation: `gp_Trsf.SetRotation(gp_Ax1(origin, gp_Dir(0,0,1)), angle_rad)`
-3. Bottom flip: `gp_Trsf.SetRotation(gp_Ax1(origin, gp_Dir(0,1,0)), PI)` if bottom
-4. Model offset: `gp_Trsf.SetTranslation(gp_Vec(offset_x, offset_y, offset_z))`
-5. Model rotation Z: around Z axis
-6. Model rotation Y: around Y axis
-7. Model rotation X: around X axis
-
-**Success Criteria**:
-- [x] Component STEP models load and place correctly
-- [x] Bottom-side components are flipped
-- [x] Missing models are skipped without error
-- [x] Test passes with at least one component model
-
----
-
-### Stage 7: Public API + Integration
-
-**Goal**: Clean public API, update types, end-to-end test.
+**Goal**: Update public/ with current WASM build and add opencascade.js dist files.
 
 **Tasks**:
-- [x] 7a. Create clean `exportPcbToStep()` public API in `src/step-export/index.ts`:
-  ```typescript
-  export interface StepExportOptions {
-    /** Resolve 3D model filenames to STEP file data. Optional. */
-    modelResolver?: ModelResolver;
-    /** Include copper layers. Default: true. */
-    includeCopperLayers?: boolean;
-    /** Include drill holes. Default: true. */
-    includeDrillHoles?: boolean;
-    /** Include 3D component models. Default: true. */
-    includeComponents?: boolean;
-  }
-
-  export async function exportPcbToStep(
-    geometryJson: PcbGeometry,
-    options?: StepExportOptions
-  ): Promise<Uint8Array>;
+- [ ] 4a. Copy updated WASM:
+  ```bash
+  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.mjs public/
+  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.wasm public/
+  cp kicad-drc-wasm/build-wasm-erc/kicad_drc.worker.mjs public/ 2>/dev/null || true
   ```
-- [x] 7b. Update `types/kicad-wasm.d.ts`:
-  - Add `_kicad_get_pcb_geometry` to `KicadWasmModule`
-  - Add `PcbGeometry` JSON types
-  - Add `StepExportOptions`, `ModelResolver` types
-  - Add `exportPcbToStep` function type
-- [x] 7c. Update `package.json`:
-  - Add `opencascade.js` to dependencies
-  - Add `step-export` to exports map
-  - Add test script for step tests
-- [x] 7d. Create end-to-end test `test/test-step-e2e.mjs`:
-  - Load .kicad_pcb → get geometry → build full STEP (board + holes + copper)
-  - Verify STEP file is valid and >10KB
-  - Verify board dimensions roughly match PCB size
-  - Run regression: `node --experimental-wasm-threads test/test-erc-suite.mjs`
-- [x] 7e. Commit all changes
+- [ ] 4b. Copy opencascade.js dist:
+  ```bash
+  cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.js public/
+  cp kicad-drc-wasm/node_modules/opencascade.js/dist/opencascade.wasm.wasm public/
+  ```
+- [ ] 4c. Verify sizes: kicad_drc.wasm ~9.6MB, opencascade.wasm.wasm ~63MB
+- [ ] 4d. Verify DRC page still works with updated WASM binary
+- [ ] 4e. Verify ERC page works with updated WASM binary
 
 **Success Criteria**:
-- [x] `exportPcbToStep()` produces valid STEP from .kicad_pcb
-- [x] TypeScript types are complete
-- [x] End-to-end test passes
-- [x] ERC regression passes
-- [x] All previous tests still pass
+- [ ] Updated WASM binary in public/
+- [ ] opencascade.js dist files in public/
+- [ ] DRC and ERC pages still functional
 
 ---
 
-## Verification Commands
+### Stage 5: STEP Page — Layout + Geometry Extraction
 
-```bash
-# Stage 1-2: Geometry extraction
-node --experimental-wasm-threads test/test-step-geometry.mjs
+**Goal**: Create STEP page with file drop and geometry stats display.
 
-# Stage 3-7: STEP generation
-node --experimental-wasm-threads test/test-step-export.mjs
+**Tasks**:
+- [ ] 5a. Create `public/step.html` with layout:
+  - Links to `shared.css`, loads `nav.js`
+  - Title: "STEP Export — KiCad WASM Tools"
+  - Two status bars: "KiCad WASM" (loads immediately) + "opencascade.js" (shows "will load on demand")
+  - Drop zone for `.kicad_pcb` files, "Use Sample PCB" button
+  - Stats panel (hidden initially): board dimensions, thickness, copper layers, holes, components
+  - 3D viewer canvas (hidden initially): 500px height, dark background
+  - Action buttons: "Generate STEP" (hidden until file loaded), "Download .step" (hidden until built)
+- [ ] 5b. Implement KiCad WASM loading + geometry extraction:
+  - Same WASM loading pattern as DRC/ERC pages
+  - On file load: `_kicad_load_pcb()` then `_kicad_get_pcb_geometry()`
+  - Parse geometry JSON, show stats (board W x H mm, thickness, N copper layers, N holes, N components)
+  - Show "Generate STEP" button after geometry extracted
+- [ ] 5c. Verify: drop sample.kicad_pcb, stats populate correctly
 
-# Stage 7: End-to-end
-node --experimental-wasm-threads test/test-step-e2e.mjs
-
-# Regression
-node --experimental-wasm-threads test/test-erc-suite.mjs
-```
-
----
-
-## Risks & Mitigations
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Board connectivity not built before geometry extraction | HIGH | Reuse existing `kicad_load_pcb()` which calls `BuildConnectivity()` |
-| Zone fills not available (zones need filling) | HIGH | Check if zones are filled after load; if not, call `zone->GetFilledPolysList()` which returns pre-filled data from the .kicad_pcb file |
-| `opencascade.js` WASM size too large for browser | MEDIUM | Make STEP export an optional import; board body only needs ~5 OCCT classes |
-| Copper polygon count too high (performance) | MEDIUM | Simplify polygons, merge by net, skip inner layers if option set |
-| Component STEP model resolution | MEDIUM | ModelResolver interface lets callers provide models from any source |
-| SHAPE_POLY_SET serialization with arcs | LOW | Call `ClearArcs()` before serialization to convert arcs to line segments |
+**Success Criteria**:
+- [ ] STEP page loads, accepts .kicad_pcb files
+- [ ] Geometry stats display correctly
+- [ ] "Generate STEP" button appears after file loaded
 
 ---
 
-## Out of Scope
+### Stage 6: STEP Page — 3D Construction + Preview
 
-- Solder mask / silkscreen 3D shapes (can add later)
-- Solder paste stencil shapes
-- Board edge chamfers / fillets
-- Copper trace individual shapes (merged by layer)
-- Component courtyard / fabrication layer shapes
-- VRML/glTF output (only STEP)
-- Interactive 3D viewer (separate project)
+**Goal**: Add opencascade.js STEP construction and three.js 3D preview.
+
+**Tasks**:
+- [ ] 6a. Add three.js import map to step.html:
+  ```html
+  <script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.175.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.175.0/examples/jsm/" } }
+  </script>
+  ```
+- [ ] 6b. Implement browser-adapted `initOpenCascade()`:
+  - Import `./opencascade.wasm.js`
+  - `locateFile: (path) => './' + path`
+  - Update status bar during loading
+- [ ] 6c. Implement browser-adapted StepBuilder (inline in step.html):
+  - `buildWire(vertices, z)` — same as step-builder.mjs
+  - `buildBoardBody()` — same
+  - `cutDrillHoles()` — same (fuse-then-cut)
+  - `buildCopperLayerSolids()` — same (with degenerate edge skip)
+  - `writeStep(shape)` — simplified for browser: write to `oc.FS`, read back, return Uint8Array
+  - Skip component model loading for demo
+- [ ] 6d. Implement tessellation function:
+  - `BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false)` for tessellation
+  - `TopExp_Explorer` to iterate faces
+  - Extract vertices via `tri.Node(i)`, triangles via `tri.Triangle(i)`
+  - Handle face orientation (reversed faces swap winding order)
+- [ ] 6e. Implement three.js 3D viewer:
+  - Scene with dark background (#1e293b)
+  - AmbientLight + 2 DirectionalLights
+  - MeshPhongMaterial with green PCB color (0x2d8a4e)
+  - PerspectiveCamera, fit to bounding box
+  - OrbitControls with damping
+  - Resize handler for canvas
+  - Hint text: "Click and drag to rotate"
+- [ ] 6f. Connect "Generate STEP" button:
+  - Lazy-load opencascade.js on first click
+  - Build shape (board body + holes + copper)
+  - Tessellate + display in viewer
+  - Store STEP data for download
+  - Show "Download .step" button
+- [ ] 6g. Implement download button:
+  - Create Blob from STEP Uint8Array
+  - Trigger download as `<filename>.step`
+- [ ] 6h. Verify: drop sample.kicad_pcb, click Generate STEP, 3D preview shows, download works
+
+**Success Criteria**:
+- [ ] opencascade.js loads lazily on "Generate STEP" click
+- [ ] 3D preview shows green PCB board with holes and copper
+- [ ] OrbitControls work (rotate, zoom, pan)
+- [ ] Download produces valid .step file (starts with ISO-10303-21)
 
 ---
 
-## Constants
+### Stage 7: Polish + Commit + Push
 
-From KiCad source:
-- `BOARD_THICKNESS_DEFAULT_MM = 1.6`
-- `COPPER_THICKNESS_DEFAULT_MM = 0.035`
-- `OCC_MAX_DISTANCE_TO_MERGE_POINTS = 0.001`
-- KiCad IU: 1 mm = 1,000,000 IU (nanometer scale)
-- `pcbIUScale.IUTomm(value)` for conversion
+**Goal**: Final polish, commit everything, push.
+
+**Tasks**:
+- [ ] 7a. Test all four pages work:
+  - index.html — hub loads, nav works, links work
+  - drc.html — module loads, sample PCB runs DRC, violations displayed
+  - erc.html — module loads, sample schematic runs ERC, violations by sheet
+  - step.html — module loads, geometry extracted, STEP built, 3D preview shows, download works
+- [ ] 7b. Fix any issues found
+- [ ] 7c. Commit all changes:
+  ```bash
+  git add public/ docs/plans/
+  git commit -m "feat(demo): GitLab Pages with DRC, ERC, and STEP 3D preview demos"
+  ```
+- [ ] 7d. Push:
+  ```bash
+  git push origin master
+  ```
+
+**Success Criteria**:
+- [ ] All pages functional
+- [ ] Committed and pushed
+- [ ] GitLab Pages will deploy on push
+
+---
+
+## Verification
+
+After push, GitLab Pages deploys automatically. URLs:
+- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/` — hub
+- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/drc.html` — DRC
+- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/erc.html` — ERC
+- `https://henrybtroutman.gitlab.io/kicad-cli-wasm/step.html` — STEP Export
 
 ---
 
 ## Checkpoints
 
-After each stage:
-- [x] **Stage 1**: Board outline + stackup + components extracted as JSON
-- [x] **Stage 2**: Copper polygons + drill holes in JSON
-- [x] **Stage 3**: Board body STEP file generated
-- [x] **Stage 4**: Drill holes cut from board
-- [x] **Stage 5**: Copper layers added
-- [x] **Stage 6**: Component models placed
-- [x] **Stage 7**: Public API complete, end-to-end test passes
+- [x] **Stage 1**: Shared CSS + nav + hub page
+- [ ] **Stage 2**: DRC page works
+- [ ] **Stage 3**: ERC page works
+- [ ] **Stage 4**: WASM binaries updated
+- [ ] **Stage 5**: STEP page layout + geometry
+- [ ] **Stage 6**: STEP 3D preview works
+- [ ] **Stage 7**: All polished, committed, pushed
