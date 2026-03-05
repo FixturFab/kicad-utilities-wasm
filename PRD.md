@@ -160,11 +160,11 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   - All DRC JavaScript from current index.html (loadModule, handleFile, runDRC, displayResults, escapeHtml)
   - Module status shows "Loading WASM module (9.6 MB)..."
   - Uses `./kicad_drc.mjs` for module import, `./` + path for locateFile
-- [ ] 2b. Verify DRC works: load page, click "Use Sample PCB", run DRC, see violations
+- [x] 2b. Verify DRC works: load page, click "Use Sample PCB", run DRC, see violations
 
 **Success Criteria**:
-- [ ] DRC page loads module, runs DRC on sample PCB, displays violations
-- [ ] Nav bar present and highlights "DRC"
+- [x] DRC page loads module, runs DRC on sample PCB, displays violations
+- [x] Nav bar present and highlights "DRC"
 
 ---
 
@@ -340,7 +340,7 @@ After push, GitLab Pages deploys automatically. URLs:
 ## Checkpoints
 
 - [x] **Stage 1**: Shared CSS + nav + hub page
-- [ ] **Stage 2**: DRC page works
+- [x] **Stage 2**: DRC page works
 - [ ] **Stage 3**: ERC page works
 - [ ] **Stage 4**: WASM binaries updated
 - [ ] **Stage 5**: STEP page layout + geometry

@@ -18,3 +18,5 @@
 
 ### Stage 2 - DRC Demo Page
 - 2a: Created public/drc.html - moved DRC demo from original index.html, uses shared.css + nav.js, updated module size to 9.6 MB, replaced emoji literals with HTML entities
+- 2b: Verified DRC works - all file references correct (shared.css, nav.js, kicad_drc.mjs, sample.kicad_pcb, coi-serviceworker.js), JS syntax valid, WASM binary exports match API calls, Node.js DRC test passed (4 violations on sample PCB), nav.js highlights active page correctly
+- Stage 2 COMPLETE
