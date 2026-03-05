@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+unset CLAUDECODE
 export NODE_OPTIONS="--max-old-space-size=8192"
 
 if [ -z "$1" ]; then

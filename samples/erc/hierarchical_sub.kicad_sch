@@ -1,0 +1,86 @@
+(kicad_sch
+  (version 20231120)
+  (generator "kicad_wasm_test")
+  (generator_version "9.99")
+  (uuid "d0000001-0000-0000-0000-000000000001")
+  (paper "A4")
+
+  (lib_symbols
+    (symbol "Device:R"
+      (pin_numbers hide)
+      (pin_names (offset 0))
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "R" (at 2.032 0 90) (effects (font (size 1.27 1.27))))
+      (property "Value" "R" (at 0 0 90) (effects (font (size 1.27 1.27))))
+      (property "Footprint" "" (at -1.778 0 90) (effects (font (size 1.27 1.27)) hide))
+      (property "Datasheet" "~" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (symbol "R_0_1"
+        (rectangle (start -1.016 -2.54) (end 1.016 2.54) (stroke (width 0) (type default)) (fill (type none)))
+      )
+      (symbol "R_1_1"
+        (pin passive line (at 0 3.81 270) (length 1.27) (name "~" (effects (font (size 1.27 1.27)))) (number "1" (effects (font (size 1.27 1.27)))))
+        (pin passive line (at 0 -3.81 90) (length 1.27) (name "~" (effects (font (size 1.27 1.27)))) (number "2" (effects (font (size 1.27 1.27)))))
+      )
+    )
+    (symbol "power:GND"
+      (power)
+      (pin_numbers hide)
+      (pin_names (offset 0) hide)
+      (exclude_from_sim no)
+      (in_bom yes)
+      (on_board yes)
+      (property "Reference" "#PWR" (at 0 -6.35 0) (effects (font (size 1.27 1.27)) hide))
+      (property "Value" "GND" (at 0 -3.81 0) (effects (font (size 1.27 1.27))))
+      (property "Footprint" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "Datasheet" "" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "ki_keywords" "global power" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (property "ki_description" "Power symbol creates a global label with name GND" (at 0 0 0) (effects (font (size 1.27 1.27)) hide))
+      (symbol "GND_0_1"
+        (polyline (pts (xy 0 0) (xy 0 -1.27) (xy 1.27 -1.27) (xy 0 -2.54) (xy -1.27 -1.27) (xy 0 -1.27)) (stroke (width 0) (type default)) (fill (type none)))
+      )
+      (symbol "GND_1_1"
+        (pin power_in line (at 0 0 270) (length 0) (name "GND" (effects (font (size 1.27 1.27)))) (number "1" (effects (font (size 1.27 1.27)))))
+      )
+    )
+  )
+
+  (hierarchical_label "SIG_IN" (shape input) (at 127.0 76.2 90)
+    (effects (font (size 1.27 1.27)) (justify left))
+    (uuid "hl000001")
+  )
+
+  (wire (pts (xy 127.0 76.2) (xy 127.0 80.01)) (stroke (width 0) (type default)) (uuid "w1000001"))
+  (wire (pts (xy 127.0 87.63) (xy 127.0 91.44)) (stroke (width 0) (type default)) (uuid "w1000002"))
+
+  (symbol (lib_id "Device:R") (at 127.0 83.82 0) (unit 1)
+    (in_bom yes) (on_board yes)
+    (uuid "s1000001")
+    (property "Reference" "R2" (at 129.032 83.82 90) (effects (font (size 1.27 1.27))))
+    (property "Value" "4.7k" (at 127.0 83.82 90) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 125.222 83.82 90) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "~" (at 127.0 83.82 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "p1000001"))
+    (pin "2" (uuid "p1000002"))
+  )
+
+  (symbol (lib_id "power:GND") (at 127.0 91.44 0) (unit 1)
+    (in_bom yes) (on_board yes)
+    (uuid "s1000002")
+    (property "Reference" "#PWR03" (at 127.0 97.79 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Value" "GND" (at 127.0 95.25 0) (effects (font (size 1.27 1.27))))
+    (property "Footprint" "" (at 127.0 91.44 0) (effects (font (size 1.27 1.27)) hide))
+    (property "Datasheet" "" (at 127.0 91.44 0) (effects (font (size 1.27 1.27)) hide))
+    (pin "1" (uuid "p1000003"))
+  )
+
+  (sheet_instances
+    (path "/d0000001-0000-0000-0000-000000000001" (page "2"))
+  )
+
+  (symbol_instances
+    (path "/d0000001-0000-0000-0000-000000000001/s1000001" (reference "R2") (unit 1) (value "4.7k") (footprint ""))
+    (path "/d0000001-0000-0000-0000-000000000001/s1000002" (reference "#PWR03") (unit 1) (value "GND") (footprint ""))
+  )
+)
