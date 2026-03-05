@@ -13,6 +13,7 @@ public:
     virtual ~wxWindow() = default;
 
     virtual bool Show(bool show = true) { return true; }
+    virtual bool Hide() { return Show(false); }
     virtual bool Enable(bool enable = true) { return true; }
     bool IsEnabled() const { return true; }
     bool IsShown() const { return false; }
@@ -52,6 +53,15 @@ public:
     double GetDPIScaleFactor() const { return 1.0; }
     double GetContentScaleFactor() const { return 1.0; }
 
+    static int FromDIP(int d, const wxWindow*) { return d; }
+    static wxSize FromDIP(const wxSize& sz, const wxWindow*) { return sz; }
+    static wxPoint FromDIP(const wxPoint& pt, const wxWindow*) { return pt; }
+    int FromDIP(int d) const { return d; }
+    wxSize FromDIP(const wxSize& sz) const { return sz; }
+    wxPoint FromDIP(const wxPoint& pt) const { return pt; }
+    static int ToDIP(int d, const wxWindow*) { return d; }
+    int ToDIP(int d) const { return d; }
+
     virtual void SetFocus() {}
     bool HasFocus() const { return false; }
 
@@ -90,6 +100,8 @@ public:
     void ScreenToClient(int* x, int* y) const {}
     wxPoint ClientToScreen(const wxPoint& pt) const { return pt; }
     wxPoint ScreenToClient(const wxPoint& pt) const { return pt; }
+
+    int GetPopupMenuSelectionFromUser(class wxMenu&, const wxPoint& pos = wxPoint()) { return -1; }
 
 private:
     wxWindowID m_id = wxID_ANY;

@@ -40,6 +40,7 @@ public:
 // Language IDs
 enum {
     wxLANGUAGE_DEFAULT = 0,
+    wxLANGUAGE_UNKNOWN = 0,
     wxLANGUAGE_ENGLISH = 1,
     wxLANGUAGE_ENGLISH_US = 2
 };

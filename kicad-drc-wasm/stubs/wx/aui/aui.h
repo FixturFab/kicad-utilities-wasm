@@ -41,6 +41,10 @@ public:
     wxAuiPaneInfo& MinSize(const wxSize&) { return *this; }
     wxAuiPaneInfo& MaxSize(int, int) { return *this; }
     wxAuiPaneInfo& MaxSize(const wxSize&) { return *this; }
+    wxAuiPaneInfo& FloatingSize(int, int) { return *this; }
+    wxAuiPaneInfo& FloatingSize(const wxSize&) { return *this; }
+    wxAuiPaneInfo& FloatingPosition(int, int) { return *this; }
+    wxAuiPaneInfo& FloatingPosition(const wxPoint&) { return *this; }
     wxAuiPaneInfo& Layer(int) { return *this; }
     wxAuiPaneInfo& Row(int) { return *this; }
     wxAuiPaneInfo& Position(int) { return *this; }

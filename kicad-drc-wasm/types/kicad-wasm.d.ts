@@ -1,0 +1,207 @@
+/**
+ * Type definitions for kicad-cli-wasm.
+ *
+ * Provides DRC (Design Rules Check) and ERC (Electrical Rules Check)
+ * validation via KiCad compiled to WebAssembly.
+ */
+
+// --- Emscripten Module ---
+
+export interface KicadWasmModule extends EmscriptenModule {
+    /** Diagnostic ping - returns 42 if module is working. */
+    _diag_ping(): number;
+
+    // --- DRC (PCB) API ---
+
+    /**
+     * Load a KiCad PCB from in-memory content (.kicad_pcb s-expression format).
+     * @param contentPtr Pointer to null-terminated string of PCB content.
+     * @param length Length in bytes (0 = use strlen).
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_load_pcb(contentPtr: number, length: number): number;
+
+    /**
+     * Run DRC checks on the loaded PCB.
+     * Must call _kicad_load_pcb() first.
+     * @returns Number of violations found, or -1 on error.
+     */
+    _kicad_run_drc(): number;
+
+    /**
+     * Get DRC results as a JSON string pointer.
+     * @returns Pointer to JSON string (use UTF8ToString), or 0 on error.
+     */
+    _kicad_get_drc_results(): number;
+
+    /** Free all PCB/DRC resources. */
+    _kicad_cleanup(): void;
+
+    // --- ERC (Schematic) API ---
+
+    /**
+     * Load a KiCad schematic from in-memory content (.kicad_sch s-expression format).
+     * @param contentPtr Pointer to null-terminated string of schematic content.
+     * @param length Length in bytes (0 = use strlen).
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_load_schematic(contentPtr: number, length: number): number;
+
+    /**
+     * Load an additional schematic sheet for hierarchical designs.
+     * Must be called BEFORE _kicad_load_schematic() for the root sheet.
+     * @param sheetPathPtr Pointer to relative sheet path string.
+     * @param contentPtr Pointer to null-terminated sheet content string.
+     * @param length Length in bytes (0 = use strlen).
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_load_schematic_sheet(sheetPathPtr: number, contentPtr: number, length: number): number;
+
+    /**
+     * Run ERC checks on the loaded schematic.
+     * Must call _kicad_load_schematic() first.
+     * @returns Number of violations found, or -1 on error.
+     */
+    _kicad_run_erc(): number;
+
+    /**
+     * Get ERC results as a JSON string pointer.
+     * @returns Pointer to JSON string (use UTF8ToString), or 0 on error.
+     */
+    _kicad_get_erc_results(): number;
+
+    /** Free all schematic/ERC resources. */
+    _kicad_cleanup_schematic(): void;
+}
+
+export interface EmscriptenModule {
+    _malloc(size: number): number;
+    _free(ptr: number): void;
+    lengthBytesUTF8(str: string): number;
+    stringToUTF8(str: string, outPtr: number, maxBytesToWrite: number): void;
+    UTF8ToString(ptr: number): string;
+}
+
+export interface KicadWasmModuleOptions {
+    print?: (text: string) => void;
+    printErr?: (text: string) => void;
+    locateFile?: (path: string, scriptDirectory: string) => string;
+}
+
+/** Factory function exported by the WASM module. */
+export default function createKicadWasm(options?: KicadWasmModuleOptions): Promise<KicadWasmModule>;
+
+// --- DRC JSON Result Types ---
+
+/** DRC result JSON following schemas.kicad.org/drc.v1.json */
+export interface DrcResult {
+    $schema: string;
+    coordinate_units: string;
+    date: string;
+    kicad_version: string;
+    source: string;
+    violations: DrcViolation[];
+    unconnected_items: DrcViolation[];
+}
+
+export interface DrcViolation {
+    type: string;
+    severity: 'error' | 'warning';
+    description: string;
+    items: DrcViolationItem[];
+}
+
+export interface DrcViolationItem {
+    description: string;
+    pos: Position;
+    uuid: string;
+}
+
+// --- ERC JSON Result Types ---
+
+/** ERC result JSON following schemas.kicad.org/erc.v1.json */
+export interface ErcResult {
+    $schema: string;
+    coordinate_units: string;
+    date: string;
+    kicad_version: string;
+    source: string;
+    sheets: ErcSheet[];
+}
+
+export interface ErcSheet {
+    path: string;
+    uuid_path: string;
+    violations: ErcViolation[];
+}
+
+export interface ErcViolation {
+    type: ErcViolationType;
+    severity: 'error' | 'warning';
+    description: string;
+    items: ErcViolationItem[];
+}
+
+export interface ErcViolationItem {
+    description: string;
+    pos: Position;
+    uuid: string;
+}
+
+export interface Position {
+    x: number;
+    y: number;
+}
+
+/** All known ERC violation type strings. */
+export type ErcViolationType =
+    | 'bus_definition_conflict'
+    | 'bus_entry_needed'
+    | 'bus_to_bus_conflict'
+    | 'bus_to_net_conflict'
+    | 'different_unit_footprint'
+    | 'different_unit_net'
+    | 'duplicate_pins'
+    | 'duplicate_reference'
+    | 'duplicate_sheet_names'
+    | 'endpoint_off_grid'
+    | 'extra_units'
+    | 'field_name_whitespace'
+    | 'footprint_filter'
+    | 'footprint_link_issues'
+    | 'four_way_junction'
+    | 'generic-error'
+    | 'generic-warning'
+    | 'ground_pin_not_ground'
+    | 'hier_label_mismatch'
+    | 'isolated_pin_label'
+    | 'label_dangling'
+    | 'label_multiple_wires'
+    | 'lib_symbol_issues'
+    | 'lib_symbol_mismatch'
+    | 'missing_bidi_pin'
+    | 'missing_input_pin'
+    | 'missing_power_pin'
+    | 'missing_unit'
+    | 'multiple_net_names'
+    | 'net_not_bus_member'
+    | 'no_connect_connected'
+    | 'no_connect_dangling'
+    | 'pin_not_connected'
+    | 'pin_not_driven'
+    | 'pin_to_pin'
+    | 'power_pin_not_driven'
+    | 'same_local_global_label'
+    | 'similar_label_and_power'
+    | 'similar_labels'
+    | 'similar_power'
+    | 'simulation_model_issue'
+    | 'single_global_label'
+    | 'stacked_pin_name'
+    | 'unannotated'
+    | 'unconnected_wire_endpoint'
+    | 'undefined_netclass'
+    | 'unit_value_mismatch'
+    | 'unresolved_variable'
+    | 'wire_dangling'
+    | (string & {}); // Allow unknown types for forward compatibility

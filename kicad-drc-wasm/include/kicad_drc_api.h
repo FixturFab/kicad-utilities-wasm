@@ -33,6 +33,45 @@ const char* kicad_get_drc_results(void);
  */
 void kicad_cleanup(void);
 
+/**
+ * Load a KiCad schematic from in-memory content (s-expression format).
+ * @param sch_content  Null-terminated string of the .kicad_sch file content.
+ * @param length       Length of sch_content in bytes (0 = use strlen).
+ * @return 0 on success, non-zero error code on failure.
+ */
+int kicad_load_schematic(const char* sch_content, size_t length);
+
+/**
+ * Load an additional schematic sheet (for hierarchical designs).
+ * Must be called BEFORE kicad_load_schematic() so that the child sheet
+ * files are available on the virtual filesystem when the root schematic
+ * is parsed (KiCad's loader recursively resolves child sheets by filename).
+ * @param sheet_path   Relative path of the sheet (as referenced in root schematic).
+ * @param content      Null-terminated string of the .kicad_sch sheet content.
+ * @param length       Length of content in bytes (0 = use strlen).
+ * @return 0 on success, non-zero error code on failure.
+ */
+int kicad_load_schematic_sheet(const char* sheet_path, const char* content, size_t length);
+
+/**
+ * Run ERC checks on the loaded schematic.
+ * Must call kicad_load_schematic() first.
+ * @return Number of violations found, or -1 on error.
+ */
+int kicad_run_erc(void);
+
+/**
+ * Get ERC results as a JSON string.
+ * The returned pointer is valid until the next call to kicad_run_erc() or kicad_cleanup_schematic().
+ * @return JSON string following the schemas.kicad.org/erc.v1.json schema, or NULL on error.
+ */
+const char* kicad_get_erc_results(void);
+
+/**
+ * Free schematic resources (schematic, ERC engine, results).
+ */
+void kicad_cleanup_schematic(void);
+
 #ifdef __cplusplus
 }
 #endif

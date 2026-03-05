@@ -80,7 +80,6 @@ class wxCStrData
 public:
     wxCStrData(const wxString* str);
     operator const char*() const;
-    operator std::string() const;
     const char* AsChar() const;
 private:
     const wxString* m_str;
@@ -145,6 +144,7 @@ public:
     wxString(const char* s, const wxMBConv&, size_t n) : m_str(s ? s : "", n) {}
     wxString(const wxUniChar& c) : m_str(1, (char)c) {}
     wxString(const wchar_t* s) : m_str() { if(s) { while(*s) { m_str += (char)*s; s++; } } }
+    wxString(const std::wstring& s) : m_str() { for(auto c : s) m_str += (char)c; }
     wxString(const wchar_t* s, const wxMBConv&) : wxString(s) {}
     wxString(const wxCStrData& s);
 
@@ -225,6 +225,7 @@ public:
     }
 
     // Comparison
+    int compare(const wxString& s) const { return m_str.compare(s.m_str); }
     int Cmp(const wxString& s) const { return m_str.compare(s.m_str); }
     int CmpNoCase(const wxString& s) const {
         std::string a = m_str, b = s.m_str;
@@ -328,6 +329,23 @@ public:
     wxString& Prepend(const wxString& s) { m_str.insert(0, s.m_str); return *this; }
     wxString& insert(size_t pos, const wxString& s) { m_str.insert(pos, s.m_str); return *this; }
     wxString& insert(size_t pos, size_t count, char c) { m_str.insert(pos, count, c); return *this; }
+    template<typename InputIt>
+    iterator insert(iterator pos, InputIt first, InputIt last) {
+        auto off = pos - m_str.begin();
+        m_str.insert(m_str.begin() + off, first, last);
+        return m_str.begin() + off;
+    }
+    template<typename InputIt>
+    iterator insert(const_iterator pos, InputIt first, InputIt last) {
+        auto off = pos - m_str.cbegin();
+        m_str.insert(m_str.begin() + off, first, last);
+        return m_str.begin() + off;
+    }
+    iterator insert(const_iterator pos, const wxString& s) {
+        auto off = pos - m_str.cbegin();
+        m_str.insert(off, s.m_str);
+        return m_str.begin() + off;
+    }
 
     void Truncate(size_t len) { if(len < m_str.size()) m_str.resize(len); }
     wxString& Trim(bool fromRight = true) {
@@ -469,6 +487,8 @@ public:
     }
     wxString& MakeUpper() { std::transform(m_str.begin(), m_str.end(), m_str.begin(), ::toupper); return *this; }
     wxString& MakeLower() { std::transform(m_str.begin(), m_str.end(), m_str.begin(), ::tolower); return *this; }
+    void LowerCase() { MakeLower(); }
+    void UpperCase() { MakeUpper(); }
     wxString Capitalize() const {
         wxString result = *this;
         if (!result.m_str.empty()) {
@@ -641,7 +661,6 @@ private:
 // wxCStrData implementation
 inline wxCStrData::wxCStrData(const wxString* str) : m_str(str) {}
 inline wxCStrData::operator const char*() const { return m_str->char_str(); }
-inline wxCStrData::operator std::string() const { return std::string(m_str->char_str()); }
 inline const char* wxCStrData::AsChar() const { return m_str->char_str(); }
 
 // Hash specialization
@@ -695,7 +714,7 @@ public:
 // wxSplit / wxJoin (also in tokenzr.h but needed early)
 inline wxArrayString wxSplit(const wxString& str, char sep, char escape = 0) {
     wxArrayString result;
-    std::string s = str.c_str();
+    std::string s = str.ToStdString();
     std::string token;
     for (size_t i = 0; i < s.size(); i++) {
         if (s[i] == sep) { result.Add(wxString(token)); token.clear(); }
@@ -738,7 +757,7 @@ inline double wxAtof(const wxString& str) { return std::atof(str.c_str().AsChar(
 
 // wxSafeConvertWX2MB - convert wxString to multibyte (trivial in our UTF8 build)
 inline std::string wxSafeConvertWX2MB(const char* s) { return s ? std::string(s) : std::string(); }
-inline std::string wxSafeConvertWX2MB(const wxString& s) { return std::string(s.c_str()); }
+inline std::string wxSafeConvertWX2MB(const wxString& s) { return s.ToStdString(); }
 
 // Include strconv.h here (after wxString is complete) so that wxConvUTF8 etc.
 // are visible to any file that includes wx/string.h
@@ -783,3 +802,6 @@ inline int wxSnprintf(char* buf, size_t len, const wxString& fmt, Args... args) 
 
 // Include uri.h so wxURI is available (real wxWidgets provides via various includes)
 #include "uri.h"
+
+// Include tokenzr.h so wxStringTokenizer is available (PCH dependency)
+#include "tokenzr.h"

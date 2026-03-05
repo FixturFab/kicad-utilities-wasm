@@ -2,6 +2,7 @@
 
 #include "defs.h"
 #include "string.h"
+#include "object.h"
 #include "gdicmn.h"
 #include "datetime.h"
 #include <functional>
@@ -96,7 +97,7 @@ private:
     wxString m_string;
 };
 
-class wxEvtHandler
+class wxEvtHandler : public wxObject
 {
 public:
     virtual ~wxEvtHandler() = default;

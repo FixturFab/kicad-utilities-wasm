@@ -11,6 +11,10 @@
 
 enum wxPathFormat { wxPATH_NATIVE = 0, wxPATH_UNIX, wxPATH_DOS, wxPATH_MAC };
 
+#define wxFILE_SEP_PATH '/'
+#define wxFILE_SEP_PATH_UNIX '/'
+#define wxFILE_SEP_EXT '.'
+
 // File existence flags
 #define wxFILE_EXISTS_REGULAR  0x0001
 #define wxFILE_EXISTS_DIR      0x0002
@@ -20,6 +24,7 @@ enum wxPathFormat { wxPATH_NATIVE = 0, wxPATH_UNIX, wxPATH_DOS, wxPATH_MAC };
 // wxFileName flags
 #define wxS_DIR_DEFAULT 0777
 #define wxPATH_MKDIR_FULL 0x0001
+#define wxPATH_RMDIR_RECURSIVE 0x0002
 #define wxPATH_GET_VOLUME 0x0001
 #define wxPATH_GET_SEPARATOR 0x0002
 
@@ -37,7 +42,7 @@ enum {
 
 // Standalone file utility functions
 inline wxString wxPathOnly(const wxString& path) {
-    std::string s = path.c_str();
+    std::string s = path.ToStdString();
     auto sep = s.rfind('/');
     return sep != std::string::npos ? wxString(s.substr(0, sep)) : wxString();
 }
@@ -63,7 +68,7 @@ public:
     }
 
     void Assign(const wxString& fullpath) {
-        std::string s = fullpath.c_str();
+        std::string s = fullpath.ToStdString();
         auto sep = s.rfind('/');
         if(sep != std::string::npos) {
             m_dir = wxString(s.substr(0, sep));
@@ -82,7 +87,7 @@ public:
         m_name = name;
         m_ext.clear();
         // Parse name for extension
-        std::string s = name.c_str();
+        std::string s = name.ToStdString();
         auto dot = s.rfind('.');
         if(dot != std::string::npos) {
             m_name = wxString(s.substr(0, dot));
@@ -133,7 +138,7 @@ public:
     void SetExt(const wxString& ext) { m_ext = ext; }
     void ClearExt() { m_ext.clear(); }
     void SetFullName(const wxString& fullname) {
-        std::string s = fullname.c_str();
+        std::string s = fullname.ToStdString();
         auto dot = s.rfind('.');
         if(dot != std::string::npos) {
             m_name = wxString(s.substr(0, dot));
@@ -189,7 +194,7 @@ public:
     static wxString CreateTempFileName(const wxString& prefix) {
         static int counter = 0;
         char buf[256];
-        snprintf(buf, sizeof(buf), "/tmp/%s_%d_%d", prefix.c_str(), (int)getpid(), counter++);
+        snprintf(buf, sizeof(buf), "/tmp/%s_%d_%d", (const char*)prefix.c_str(), (int)getpid(), counter++);
         return wxString(buf);
     }
 
@@ -295,6 +300,9 @@ public:
 
     static wxArrayString GetAllowedChars() { return wxArrayString(); }
 
+    // IsDir: returns true if this wxFileName represents a directory (has no filename part)
+    bool IsDir() const { return m_name.IsEmpty() && m_ext.IsEmpty(); }
+
     // Other
     bool IsDirReadable() const { return DirExists(); }
     bool IsDirWritable() const { return access(GetPath().c_str(), W_OK) == 0; }
@@ -315,6 +323,9 @@ public:
 
     // Size (static and instance versions defined earlier)
 
+    bool Rmdir(int flags = 0) { return rmdir(GetFullPath().c_str()) == 0; }
+    static bool Rmdir(const wxString& dir, int flags = 0) { return rmdir(dir.c_str()) == 0; }
+
     bool SetTimes(void*, void*, void*) { return false; }
     bool Touch() { return false; }
 
@@ -329,7 +340,7 @@ private:
         if(m_dirsParsed) return;
         m_dirsParsed = true;
         m_dirs.Clear();
-        std::string d = m_dir.c_str();
+        std::string d = m_dir.ToStdString();
         std::string token;
         for(size_t i = 0; i < d.size(); i++) {
             if(d[i] == '/') {

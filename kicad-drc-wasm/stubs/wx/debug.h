@@ -14,5 +14,6 @@
 #define wxCHECK2_MSG(cond, op, msg) do { if(!(cond)) { op; } } while(0)
 #define wxFAIL
 #define wxFAIL_MSG(msg)
+#define wxFAIL_MSG_AT(msg, file, line, func)
 #define wxCOMPILE_TIME_ASSERT(cond, msg) static_assert(cond, #msg)
 #define wxCOMPILE_TIME_ASSERT2(cond, msg, name) static_assert(cond, #msg)

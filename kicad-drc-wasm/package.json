@@ -1,0 +1,28 @@
+{
+  "name": "@anthropic/kicad-wasm",
+  "version": "0.1.0",
+  "description": "KiCad DRC and ERC validation via WebAssembly",
+  "type": "module",
+  "main": "build-wasm-erc/kicad_drc.mjs",
+  "types": "types/kicad-wasm.d.ts",
+  "exports": {
+    ".": {
+      "import": "./build-wasm-erc/kicad_drc.mjs",
+      "types": "./types/kicad-wasm.d.ts"
+    }
+  },
+  "files": [
+    "build-wasm-erc/kicad_drc.mjs",
+    "build-wasm-erc/kicad_drc.wasm",
+    "types/kicad-wasm.d.ts"
+  ],
+  "scripts": {
+    "test": "node test/test-erc-suite.mjs",
+    "test:erc": "node test/test-erc.mjs",
+    "test:erc-hierarchical": "node test/test-erc-hierarchical.mjs"
+  },
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

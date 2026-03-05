@@ -35,7 +35,7 @@ public:
 
     bool Matches(const wxString& text) const {
         if(!m_valid) return false;
-        std::string s = text.c_str();
+        std::string s((const char*)text.c_str());
         return std::regex_search(s, m_match, m_regex);
     }
 
@@ -48,7 +48,7 @@ public:
 
     wxString GetMatch(const wxString& text, size_t index = 0) const {
         if(!m_valid) return wxString();
-        std::string s = text.c_str();
+        std::string s((const char*)text.c_str());
         if(std::regex_search(s, m_match, m_regex) && index < m_match.size())
             return wxString(m_match[index].str());
         return wxString();
@@ -58,8 +58,8 @@ public:
 
     int Replace(wxString* text, const wxString& replacement, size_t maxMatches = 0) const {
         if(!m_valid || !text) return 0;
-        std::string s = text->c_str();
-        std::string r = std::regex_replace(s, m_regex, std::string(replacement.c_str()));
+        std::string s((const char*)text->c_str());
+        std::string r = std::regex_replace(s, m_regex, std::string((const char*)replacement.c_str()));
         *text = wxString(r);
         return (s != r) ? 1 : 0;
     }

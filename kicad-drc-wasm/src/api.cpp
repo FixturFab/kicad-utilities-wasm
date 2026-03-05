@@ -1,8 +1,8 @@
 /**
- * Isolated DRC API implementation.
+ * DRC + ERC API implementation for WASM.
  *
- * Links against KiCad's existing libraries to provide DRC as a standalone
- * function callable without wxWidgets application infrastructure.
+ * Links against KiCad's existing libraries to provide DRC and ERC as standalone
+ * functions callable without wxWidgets application infrastructure.
  */
 
 #include "kicad_drc_api.h"
@@ -12,7 +12,7 @@
 #include <sstream>
 #include <fstream>
 
-// KiCad headers
+// KiCad headers - DRC
 #include <board.h>
 #include <board_design_settings.h>
 #include <pcb_marker.h>
@@ -28,6 +28,21 @@
 #include <kiface_base.h>
 #include <thread_pool.h>
 #include <wx/filename.h>
+
+// KiCad headers - ERC
+#include <schematic.h>
+#include <sch_io/sch_io_mgr.h>
+#include <sch_io/kicad_sexpr/sch_io_kicad_sexpr.h>
+#include <sch_sheet.h>
+#include <sch_screen.h>
+#include <sch_sheet_path.h>
+#include <erc/erc.h>
+#include <erc/erc_settings.h>
+#include <erc/erc_report.h>
+#include <connection_graph.h>
+#include <settings/settings_manager.h>
+#include <project_sch.h>
+#include <tool/tool_manager.h>
 
 // Stub for Kiface() - required by some KiCad library code but not used in DRC path
 static KIFACE_BASE* s_kiface_stub = nullptr;
@@ -51,6 +66,10 @@ public:
         // so we set the pointer directly.
         int num_threads = std::max( 0, ADVANCED_CFG::GetCfg().m_MaximumThreads );
         m_singleton.m_ThreadPool = new BS::priority_thread_pool( num_threads );
+
+        // Initialize settings manager - needed by ERC (SCHEMATIC_SETTINGS
+        // calls GetAppSettings<EESCHEMA_SETTINGS>() through Pgm()).
+        m_settings_manager = std::make_unique<SETTINGS_MANAGER>();
     }
 
     ~PGM_DRC_STANDALONE()
@@ -214,6 +233,347 @@ void kicad_cleanup( void )
 {
     g_json_result.clear();
     g_board.reset();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ERC API Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+} // end DRC extern "C" block
+
+// ERC global state
+static std::unique_ptr<SCHEMATIC>          g_schematic;
+static std::unique_ptr<SETTINGS_MANAGER>   g_erc_settings_mgr;
+static std::string                         g_erc_json_result;
+static const wxString                      g_sch_virtual_dir = wxS( "/tmp/kicad_wasm_sch/" );
+
+extern "C" {
+
+int kicad_load_schematic( const char* sch_content, size_t length )
+{
+    ensure_pgm_initialized();
+
+    g_schematic.reset();
+    g_erc_json_result.clear();
+
+    if( !sch_content )
+        return -1;
+
+    std::string content;
+    if( length == 0 )
+        content = std::string( sch_content );
+    else
+        content = std::string( sch_content, length );
+
+    try
+    {
+        // Write content to virtual filesystem so KiCad's file-based loader works
+        wxString schDir = g_sch_virtual_dir;
+        wxString schPath = schDir + wxS( "input.kicad_sch" );
+        wxString prjPath = schDir + wxS( "input.kicad_pro" );
+
+        // Create directories
+        wxFileName::Mkdir( schDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL );
+
+        // Write schematic file
+        {
+            std::ofstream ofs( (const char*)schPath.c_str() );
+            ofs << content;
+        }
+
+        // Create minimal project file so KiCad doesn't complain
+        {
+            std::ofstream ofs( (const char*)prjPath.c_str() );
+            ofs << "{}" ;
+        }
+
+        fprintf( stderr, "[ERC] Creating settings manager...\n" );
+
+        // Use a standalone SETTINGS_MANAGER (not from PGM_BASE which may not
+        // have one initialized) to create and manage the project.
+        // Pass aSetActive=false to avoid calling Pgm().GetLibraryManager()
+        // which is not initialized in WASM.
+        if( !g_erc_settings_mgr )
+            g_erc_settings_mgr = std::make_unique<SETTINGS_MANAGER>();
+
+        fprintf( stderr, "[ERC] Loading project at: %s\n", (const char*)prjPath.c_str() );
+        try {
+            g_erc_settings_mgr->LoadProject( prjPath, false );
+        } catch( const std::exception& e2 ) {
+            fprintf( stderr, "[ERC] LoadProject threw: %s\n", e2.what() );
+            return -7;
+        }
+        fprintf( stderr, "[ERC] Getting project...\n" );
+        PROJECT* project = g_erc_settings_mgr->GetProject( prjPath );
+
+        if( !project )
+        {
+            fprintf( stderr, "Failed to create project\n" );
+            return -2;
+        }
+
+        fprintf( stderr, "[ERC] Creating schematic object...\n" );
+        try {
+            g_schematic = std::make_unique<SCHEMATIC>( project );
+        } catch( const std::exception& e2 ) {
+            fprintf( stderr, "[ERC] SCHEMATIC constructor threw: %s\n", e2.what() );
+            return -6;
+        } catch( ... ) {
+            fprintf( stderr, "[ERC] SCHEMATIC constructor threw unknown exception\n" );
+            return -6;
+        }
+        fprintf( stderr, "[ERC] Creating default screens...\n" );
+        g_schematic->CreateDefaultScreens();
+
+        fprintf( stderr, "[ERC] Loading schematic file...\n" );
+        IO_RELEASER<SCH_IO> pi( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
+
+        SCH_SHEET* rootSheet = pi->LoadSchematicFile( schPath, g_schematic.get() );
+
+        if( !rootSheet )
+        {
+            g_schematic.reset();
+            return -3;
+        }
+
+        fprintf( stderr, "[ERC] Post-load processing...\n" );
+        g_schematic->SetTopLevelSheets( { rootSheet } );
+
+        // Post-load processing
+        SCH_SHEET_LIST sheetList = g_schematic->BuildSheetListSortedByPageNumbers();
+        SCH_SCREENS    screens( g_schematic->Root() );
+
+        for( SCH_SCREEN* screen = screens.GetFirst(); screen; screen = screens.GetNext() )
+            screen->UpdateLocalLibSymbolLinks();
+
+        if( g_schematic->RootScreen()->GetFileFormatVersionAtLoad() < 20221002 )
+            sheetList.UpdateSymbolInstanceData( g_schematic->RootScreen()->GetSymbolInstances() );
+
+        sheetList.UpdateSheetInstanceData( g_schematic->RootScreen()->GetSheetInstances() );
+
+        if( g_schematic->RootScreen()->GetFileFormatVersionAtLoad() < 20230221 )
+            screens.FixLegacyPowerSymbolMismatches();
+
+        fprintf( stderr, "[ERC] Annotating power symbols...\n" );
+        sheetList.AnnotatePowerSymbols();
+
+        fprintf( stderr, "[ERC] Building connectivity graph...\n" );
+        // Build connectivity graph
+        g_schematic->ConnectionGraph()->Reset();
+
+        g_schematic->RecalculateConnections( nullptr, GLOBAL_CLEANUP, nullptr );
+        fprintf( stderr, "[ERC] Load complete.\n" );
+
+        return 0;
+    }
+    catch( const IO_ERROR& e )
+    {
+        fprintf( stderr, "Schematic parse error: %s\n",
+                 static_cast<const char*>( e.What().mb_str() ) );
+        g_schematic.reset();
+        return -4;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "Schematic parse error: %s\n", e.what() );
+        g_schematic.reset();
+        return -5;
+    }
+}
+
+int kicad_load_schematic_sheet( const char* sheet_path, const char* content, size_t length )
+{
+    if( !sheet_path || !content )
+        return -1;
+
+    std::string str_content;
+    if( length == 0 )
+        str_content = std::string( content );
+    else
+        str_content = std::string( content, length );
+
+    try
+    {
+        // Write sheet content to virtual filesystem
+        wxString fullPath = g_sch_virtual_dir + wxString( sheet_path );
+
+        // Ensure parent directory exists
+        wxFileName fn( fullPath );
+        wxFileName::Mkdir( fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL );
+
+        std::ofstream ofs( (const char*)fullPath.c_str() );
+        ofs << str_content;
+
+        return 0;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "Sheet write error: %s\n", e.what() );
+        return -2;
+    }
+}
+
+int kicad_run_erc( void )
+{
+    if( !g_schematic )
+        return -1;
+
+    g_erc_json_result.clear();
+
+    try
+    {
+        fprintf( stderr, "[ERC] Creating ERC_TESTER...\n" );
+        ERC_TESTER ercTester( g_schematic.get() );
+        ERC_SETTINGS& ercSettings = g_schematic->ErcSettings();
+
+        fprintf( stderr, "[ERC] AnnotatePowerSymbols...\n" );
+        g_schematic->BuildSheetListSortedByPageNumbers().AnnotatePowerSymbols();
+
+        fprintf( stderr, "[ERC] TestDuplicateSheetNames...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_DUPLICATE_SHEET_NAME ) )
+            ercTester.TestDuplicateSheetNames( true );
+
+        fprintf( stderr, "[ERC] ConnectionGraph()->RunERC...\n" );
+        g_schematic->ConnectionGraph()->RunERC();
+
+        fprintf( stderr, "[ERC] TestMultiunitFootprints...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_DIFFERENT_UNIT_FP ) )
+            ercTester.TestMultiunitFootprints();
+
+        fprintf( stderr, "[ERC] TestMissingUnits...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_MISSING_UNIT )
+            || ercSettings.IsTestEnabled( ERCE_MISSING_INPUT_PIN )
+            || ercSettings.IsTestEnabled( ERCE_MISSING_POWER_INPUT_PIN )
+            || ercSettings.IsTestEnabled( ERCE_MISSING_BIDI_PIN ) )
+        {
+            ercTester.TestMissingUnits();
+        }
+
+        fprintf( stderr, "[ERC] TestMultUnitPinConflicts...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_DIFFERENT_UNIT_NET ) )
+            ercTester.TestMultUnitPinConflicts();
+
+        fprintf( stderr, "[ERC] TestDuplicatePinNets...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_DUPLICATE_PIN_ERROR ) )
+            ercTester.TestDuplicatePinNets();
+
+        fprintf( stderr, "[ERC] TestPinToPin...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_PIN_TO_PIN_ERROR )
+            || ercSettings.IsTestEnabled( ERCE_POWERPIN_NOT_DRIVEN )
+            || ercSettings.IsTestEnabled( ERCE_PIN_NOT_DRIVEN ) )
+        {
+            ercTester.TestPinToPin();
+        }
+
+        fprintf( stderr, "[ERC] TestStackedPinNotation...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_STACKED_PIN_SYNTAX ) )
+            ercTester.TestStackedPinNotation();
+
+        fprintf( stderr, "[ERC] TestSimilarLabels...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_SIMILAR_LABELS )
+            || ercSettings.IsTestEnabled( ERCE_SIMILAR_POWER )
+            || ercSettings.IsTestEnabled( ERCE_SIMILAR_LABEL_AND_POWER ) )
+        {
+            ercTester.TestSimilarLabels();
+        }
+
+        fprintf( stderr, "[ERC] TestGroundPins...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_GROUND_PIN_NOT_GROUND ) )
+            ercTester.TestGroundPins();
+
+        fprintf( stderr, "[ERC] TestSameLocalGlobalLabel...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_SAME_LOCAL_GLOBAL_LABEL ) )
+            ercTester.TestSameLocalGlobalLabel();
+
+        fprintf( stderr, "[ERC] TestTextVars...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_UNRESOLVED_VARIABLE ) )
+            ercTester.TestTextVars( nullptr );
+
+        fprintf( stderr, "[ERC] TestFieldNameWhitespace...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_FIELD_NAME_WHITESPACE ) )
+            ercTester.TestFieldNameWhitespace();
+
+        // Skip TestSimModelIssues - SIM_LIB_MGR::CreateModel is stubbed
+        // Skip TestLibSymbolIssues - requires Pgm().GetLibraryManager()
+        // Skip TestFootprintLinkIssues - requires CvPcb (passed as nullptr)
+
+        fprintf( stderr, "[ERC] TestNoConnectPins...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_NOCONNECT_CONNECTED ) )
+            ercTester.TestNoConnectPins();
+
+        fprintf( stderr, "[ERC] TestFootprintFilters...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_FOOTPRINT_FILTERS ) )
+            ercTester.TestFootprintFilters();
+
+        fprintf( stderr, "[ERC] TestOffGridEndpoints...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_ENDPOINT_OFF_GRID ) )
+            ercTester.TestOffGridEndpoints();
+
+        fprintf( stderr, "[ERC] TestFourWayJunction...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_FOUR_WAY_JUNCTION ) )
+            ercTester.TestFourWayJunction();
+
+        fprintf( stderr, "[ERC] TestLabelMultipleWires...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_LABEL_MULTIPLE_WIRES ) )
+            ercTester.TestLabelMultipleWires();
+
+        fprintf( stderr, "[ERC] TestMissingNetclasses...\n" );
+        if( ercSettings.IsTestEnabled( ERCE_UNDEFINED_NETCLASS ) )
+            ercTester.TestMissingNetclasses();
+
+        fprintf( stderr, "[ERC] ResolveERCExclusionsPostUpdate...\n" );
+        g_schematic->ResolveERCExclusionsPostUpdate();
+
+        fprintf( stderr, "[ERC] Tests complete, collecting results...\n" );
+        // Collect results
+        std::shared_ptr<SHEETLIST_ERC_ITEMS_PROVIDER> markersProvider =
+                std::make_shared<SHEETLIST_ERC_ITEMS_PROVIDER>( g_schematic.get() );
+
+        int severities = RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING;
+        markersProvider->SetSeverities( severities );
+
+        int count = markersProvider->GetCount();
+
+        // Generate JSON report
+        ERC_REPORT reportWriter( g_schematic.get(), EDA_UNITS::MM, markersProvider );
+
+        wxString tmpPath = wxFileName::CreateTempFileName( wxS( "erc_report" ) );
+        bool ok = reportWriter.WriteJsonReport( tmpPath );
+
+        if( ok )
+        {
+            std::ifstream ifs( (const char*)tmpPath.c_str() );
+            if( ifs )
+            {
+                std::ostringstream oss;
+                oss << ifs.rdbuf();
+                g_erc_json_result = oss.str();
+            }
+            wxRemoveFile( tmpPath );
+        }
+
+        return count;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "ERC error: %s\n", e.what() );
+        return -2;
+    }
+}
+
+const char* kicad_get_erc_results( void )
+{
+    if( g_erc_json_result.empty() )
+        return nullptr;
+
+    return g_erc_json_result.c_str();
+}
+
+void kicad_cleanup_schematic( void )
+{
+    g_erc_json_result.clear();
+    g_schematic.reset();
+    // Don't reset g_erc_settings_mgr - reuse across calls
 }
 
 } // extern "C"

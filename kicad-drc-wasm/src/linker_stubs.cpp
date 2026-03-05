@@ -458,3 +458,27 @@ wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
 {
     return aTextbase;
 }
+
+// ── KIGIT stubs (referenced from project.cpp VCSHASH text var) ──────────
+namespace KIGIT {
+class PROJECT_GIT_UTILS {
+public:
+    static wxString GetCurrentHash( const wxString& aProjectFile, bool aShort );
+};
+wxString PROJECT_GIT_UTILS::GetCurrentHash( const wxString&, bool )
+{
+    return wxString( "no hash" );
+}
+} // namespace KIGIT
+
+// ── DESIGN_BLOCK_LIBRARY_ADAPTER stub ────────────────────────────────────
+class LIBRARY_MANAGER;
+class LIBRARY_MANAGER_ADAPTER;
+
+class DESIGN_BLOCK_LIBRARY_ADAPTER {
+public:
+    DESIGN_BLOCK_LIBRARY_ADAPTER( LIBRARY_MANAGER& aMgr );
+};
+DESIGN_BLOCK_LIBRARY_ADAPTER::DESIGN_BLOCK_LIBRARY_ADAPTER( LIBRARY_MANAGER& ) {}
+
+// ── ERC-related stubs ────────────────────────────────────────────────────

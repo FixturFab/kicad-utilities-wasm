@@ -65,6 +65,8 @@ if(EMSCRIPTEN)
         ${KICAD_SRC}/thirdparty/zint
         ${KICAD_SRC}/thirdparty/nanodbc
         ${KICAD_SRC}/thirdparty/turtle/include
+        ${KICAD_SRC}/eeschema
+        ${KICAD_BUILD}/eeschema
     )
 
     # ── Compile definitions ─────────────────────────────────────────────────
@@ -371,6 +373,10 @@ if(EMSCRIPTEN)
         ${KICAD_BUILD}/common/drawing_sheet/drawing_sheet_keywords.cpp
         # EDA group (used by eda_item)
         ${KICAD_SRC}/common/eda_group.cpp
+        # Commit (base class for SCH_COMMIT/BOARD_COMMIT)
+        ${KICAD_SRC}/common/commit.cpp
+        # Refdes utilities (needed by ERC)
+        ${KICAD_SRC}/common/refdes_utils.cpp
         # Netlist reader (schematic parity DRC)
         ${KICAD_SRC}/common/netlist_reader/netlist.cpp
         # Library manager
@@ -499,6 +505,89 @@ if(EMSCRIPTEN)
     target_include_directories(pcbcommon_wasm PUBLIC ${KICAD_INCLUDE_DIRS})
     target_link_libraries(pcbcommon_wasm PUBLIC kicommon_wasm gal_wasm clipper2)
 
+    # ── Eeschema (schematic data model, parser, ERC) ────────────────────────
+    add_library(eeschema_wasm STATIC
+        # Schematic I/O
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/sch_io_mgr_wasm.cpp
+        ${KICAD_SRC}/eeschema/sch_io/sch_io.cpp
+        ${KICAD_SRC}/eeschema/sch_io/sch_io_lib_cache.cpp
+        ${KICAD_SRC}/eeschema/sch_io/kicad_sexpr/sch_io_kicad_sexpr.cpp
+        ${KICAD_SRC}/eeschema/sch_io/kicad_sexpr/sch_io_kicad_sexpr_parser.cpp
+        ${KICAD_SRC}/eeschema/sch_io/kicad_sexpr/sch_io_kicad_sexpr_common.cpp
+        ${KICAD_SRC}/eeschema/sch_io/kicad_sexpr/sch_io_kicad_sexpr_lib_cache.cpp
+        # Generated keywords
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/schematic_keywords_wasm.cpp
+        # Schematic data model
+        ${KICAD_SRC}/eeschema/schematic.cpp
+        ${KICAD_SRC}/eeschema/sch_screen.cpp
+        ${KICAD_SRC}/eeschema/sch_sheet_path.cpp
+        # Schematic items
+        ${KICAD_SRC}/eeschema/sch_item.cpp
+        ${KICAD_SRC}/eeschema/sch_symbol.cpp
+        ${KICAD_SRC}/eeschema/sch_pin.cpp
+        ${KICAD_SRC}/eeschema/sch_field.cpp
+        ${KICAD_SRC}/eeschema/sch_sheet.cpp
+        ${KICAD_SRC}/eeschema/sch_sheet_pin.cpp
+        ${KICAD_SRC}/eeschema/sch_line.cpp
+        ${KICAD_SRC}/eeschema/sch_bus_entry.cpp
+        ${KICAD_SRC}/eeschema/sch_junction.cpp
+        ${KICAD_SRC}/eeschema/sch_no_connect.cpp
+        ${KICAD_SRC}/eeschema/sch_label.cpp
+        ${KICAD_SRC}/eeschema/sch_text.cpp
+        ${KICAD_SRC}/eeschema/sch_textbox.cpp
+        ${KICAD_SRC}/eeschema/sch_shape.cpp
+        ${KICAD_SRC}/eeschema/sch_bitmap.cpp
+        ${KICAD_SRC}/eeschema/sch_marker.cpp
+        ${KICAD_SRC}/eeschema/sch_table.cpp
+        ${KICAD_SRC}/eeschema/sch_tablecell.cpp
+        ${KICAD_SRC}/eeschema/sch_group.cpp
+        ${KICAD_SRC}/eeschema/sch_rule_area.cpp
+        ${KICAD_SRC}/eeschema/sch_connection.cpp
+        # sch_commit.cpp excluded - edit/undo operations, not needed for ERC validation
+        ${KICAD_SRC}/eeschema/sch_collectors.cpp
+        ${KICAD_SRC}/eeschema/sch_reference_list.cpp
+        # Library symbol
+        ${KICAD_SRC}/eeschema/lib_symbol.cpp
+        ${KICAD_SRC}/eeschema/pin_type.cpp
+        ${KICAD_SRC}/eeschema/pin_layout_cache.cpp
+        # Settings / project
+        ${KICAD_SRC}/eeschema/eeschema_settings.cpp
+        ${KICAD_SRC}/eeschema/project_sch.cpp
+        # ERC
+        ${KICAD_SRC}/eeschema/erc/erc.cpp
+        ${KICAD_SRC}/eeschema/erc/erc_settings.cpp
+        ${KICAD_SRC}/eeschema/erc/erc_item.cpp
+        ${KICAD_SRC}/eeschema/erc/erc_sch_pin_context.cpp
+        ${KICAD_SRC}/eeschema/erc/erc_report.cpp
+        # Connection graph (critical for ERC)
+        ${KICAD_SRC}/eeschema/connection_graph.cpp
+        # Schematic settings and base screen
+        ${KICAD_SRC}/eeschema/schematic_settings.cpp
+        ${KICAD_SRC}/common/base_screen.cpp
+        # Junction helpers (used by sch_screen)
+        ${KICAD_SRC}/eeschema/junction_helpers.cpp
+        # Symbol checker (CheckDuplicatePins used by ERC)
+        ${KICAD_SRC}/eeschema/symbol_checker.cpp
+        # Symbol base class (vtable/typeinfo needed by ERC)
+        ${KICAD_SRC}/eeschema/symbol.cpp
+        # SCH_COMMIT excluded - heavy GUI deps; stubs in erc_linker_stubs.cpp
+        # Rendering (needed for transitive deps)
+        ${KICAD_SRC}/eeschema/sch_render_settings.cpp
+        # Refdes tracker (used by schematic)
+        ${KICAD_SRC}/eeschema/refdes_tracker.cpp
+        # ERC linker stubs (SIM_LIB_MGR, SYMBOL_LIBRARY_ADAPTER, etc.)
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/erc_linker_stubs.cpp
+    )
+    # erc_linker_stubs provides vtable/typeinfo for GUI classes not compiled in WASM
+    target_include_directories(eeschema_wasm PUBLIC ${KICAD_INCLUDE_DIRS})
+    # Force-include wx/string.h (like DRC) plus richio.h (for OUTPUTFORMATTER, normally from PCH)
+    # Use SHELL: prefix to prevent CMake from deduplicating the repeated -include flag
+    target_compile_options(eeschema_wasm PRIVATE
+        "SHELL:-include ${WX_STUB_DIR}/wx/string.h"
+        "SHELL:-include ${KICAD_SRC}/include/richio.h"
+    )
+    target_link_libraries(eeschema_wasm PUBLIC kicommon_wasm gal_wasm)
+
     # ── DRC Test Providers (self-registering, need --whole-archive) ─────────
     # ALL providers EXCEPT library_parity (crashes in static init, not needed in WASM anyway)
     add_library(drc_test_providers STATIC
@@ -572,6 +661,7 @@ if(EMSCRIPTEN)
         drc_test_providers
         -Wl,--no-whole-archive
         drc_support
+        eeschema_wasm
         pcbcommon_wasm
         gal_wasm
         kicommon_wasm
@@ -619,6 +709,7 @@ if(EMSCRIPTEN)
         drc_test_providers
         -Wl,--no-whole-archive
         drc_support
+        eeschema_wasm
         pcbcommon_wasm
         gal_wasm
         kicommon_wasm
@@ -639,7 +730,7 @@ if(EMSCRIPTEN)
             -sEXPORT_ES6=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createKicadDRC \
-            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_cleanup\",\"_diag_ping\",\"_malloc\",\"_free\"] \
+            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_diag_ping\",\"_malloc\",\"_free\"] \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\",\"stringToUTF8\",\"lengthBytesUTF8\"] \
             -O3 \
             -flto \

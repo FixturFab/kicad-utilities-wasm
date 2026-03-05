@@ -31,6 +31,7 @@ class wxApp : public wxAppConsole
 {
 public:
     virtual ~wxApp() = default;
+    wxWindow* GetTopWindow() const { return nullptr; }
 };
 
 inline wxAppConsole* wxTheApp = nullptr;

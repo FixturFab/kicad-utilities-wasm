@@ -36,9 +36,17 @@ public:
     void SetIndicatorCurrent(int) {}
     void IndicatorFillRange(int, int) {}
     void IndicatorClearRange(int, int) {}
+    int GetCharAt(int) const { return 0; }
+    int WordStartPosition(int, bool) { return 0; }
+    int WordEndPosition(int, bool) { return 0; }
+    wxString GetRange(int, int) const { return wxString(); }
+    wxString GetTextRange(int, int) const { return wxString(); }
 };
 
-class wxStyledTextEvent : public wxEvent {};
+class wxStyledTextEvent : public wxEvent {
+public:
+    int GetKey() const { return 0; }
+};
 
 // STC constants
 #define wxSTC_STYLE_DEFAULT 32

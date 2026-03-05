@@ -11,7 +11,7 @@ fi
 
 for ((i=1; i<=$1; i++)); do
   echo "=== Ralph iteration $i / $1 ==="
-  result=$(timeout 1800 claude --max-turns 40 --permission-mode acceptEdits --allowedTools "Bash Edit Write Read Glob Grep Task WebFetch WebSearch NotebookEdit" -p "@PRD.md @progress.txt \
+  result=$(timeout 3600 claude --max-turns 80 --permission-mode acceptEdits --allowedTools "Bash Edit Write Read Glob Grep Task WebFetch WebSearch NotebookEdit" -p "@PRD.md @progress.txt \
   DO NOT enter plan mode or call EnterPlanMode. Work directly on implementation. \
   BEFORE starting: read progress.txt to see what previous iterations accomplished. Pick up where they left off. \
   1. Find the highest-priority incomplete substage and work on it. \

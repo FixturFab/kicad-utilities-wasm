@@ -250,12 +250,13 @@ runErc(options?: {
 
 **A: API supports loading multiple sheets:**
 ```typescript
-// Load root schematic
-loadSchematic(rootContent);
-
-// Load child sheets by path
+// Load child sheets FIRST (before root) so they're on the virtual FS
+// when KiCad's parser recursively resolves child sheet references.
 loadSchematicSheet("subsheet.kicad_sch", subsheetContent);
 loadSchematicSheet("power/power.kicad_sch", powerContent);
+
+// Load root schematic (resolves child sheets from virtual FS)
+loadSchematic(rootContent);
 
 // Run ERC on full hierarchy
 runErc();
@@ -297,15 +298,15 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 **Goal**: Get the schematic parser compiling for WASM.
 
 **Tasks**:
-- [ ] Add `eeschema/sch_io/kicad_sexpr/` files to CMakeLists.txt
-- [ ] Add generated `sch_keywords.cpp` from KiCad build
-- [ ] Add schematic item classes (sch_symbol, sch_pin, sch_sheet, etc.)
-- [ ] Fix compilation errors (likely need additional wx stubs)
-- [ ] Create `sch_io_mgr_wasm.cpp` (equivalent to `pcb_io_mgr_wasm.cpp`)
+- [x] Add `eeschema/sch_io/kicad_sexpr/` files to CMakeLists.txt
+- [x] Add generated `sch_keywords.cpp` from KiCad build
+- [x] Add schematic item classes (sch_symbol, sch_pin, sch_sheet, etc.)
+- [x] Fix compilation errors (likely need additional wx stubs)
+- [x] Create `sch_io_mgr_wasm.cpp` (equivalent to `pcb_io_mgr_wasm.cpp`)
 
 **Success Criteria**:
-- [ ] Schematic parser library compiles for WASM
-- [ ] Can load .kicad_sch content into SCHEMATIC object
+- [x] Schematic parser library compiles for WASM
+- [x] Can load .kicad_sch content into SCHEMATIC object
 
 ---
 
@@ -314,14 +315,14 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 **Goal**: Get the connectivity graph compiling, which is critical for ERC.
 
 **Tasks**:
-- [ ] Add `eeschema/connection_graph.cpp` to CMakeLists.txt
-- [ ] Add `eeschema/sch_connection.cpp`
-- [ ] Fix compilation errors (wx dependencies, threading)
-- [ ] Verify CONNECTION_GRAPH builds connectivity from parsed schematic
+- [x] Add `eeschema/connection_graph.cpp` to CMakeLists.txt
+- [x] Add `eeschema/sch_connection.cpp`
+- [x] Fix compilation errors (wx dependencies, threading)
+- [x] Verify CONNECTION_GRAPH builds connectivity from parsed schematic
 
 **Success Criteria**:
-- [ ] CONNECTION_GRAPH compiles for WASM
-- [ ] Connectivity data generated from loaded schematic
+- [x] CONNECTION_GRAPH compiles for WASM
+- [x] Connectivity data generated from loaded schematic
 
 ---
 
@@ -330,18 +331,18 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 **Goal**: Get the ERC engine compiling and running basic checks.
 
 **Tasks**:
-- [ ] Add `eeschema/erc/*.cpp` files to CMakeLists.txt
-- [ ] Add `jobs/job_sch_erc.cpp` to kicommon_wasm
-- [ ] Create ERC API functions in `src/api.cpp`:
+- [x] Add `eeschema/erc/*.cpp` files to CMakeLists.txt
+- [x] Add `jobs/job_sch_erc.cpp` to kicommon_wasm
+- [x] Create ERC API functions in `src/api.cpp`:
   - `kicad_load_schematic()`
   - `kicad_run_erc()`
   - `kicad_get_erc_results()`
   - `kicad_cleanup_schematic()`
-- [ ] Implement ERC JSON report generation
+- [x] Implement ERC JSON report generation
 
 **Success Criteria**:
-- [ ] ERC engine compiles for WASM
-- [ ] Basic connectivity checks run (unconnected pins, conflicts)
+- [x] ERC engine compiles for WASM
+- [x] Basic connectivity checks run (unconnected pins, conflicts)
 
 ---
 
@@ -350,14 +351,14 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 **Goal**: Support multi-sheet schematics.
 
 **Tasks**:
-- [ ] Implement `kicad_load_schematic_sheet()` API for child sheets
-- [ ] Verify SCH_SHEET_LIST builds correctly from loaded sheets
-- [ ] Test hierarchical pin/label connectivity
-- [ ] Verify ERC runs across sheet boundaries
+- [x] Implement `kicad_load_schematic_sheet()` API for child sheets
+- [x] Verify SCH_SHEET_LIST builds correctly from loaded sheets
+- [x] Test hierarchical pin/label connectivity
+- [x] Verify ERC runs across sheet boundaries
 
 **Success Criteria**:
-- [ ] Hierarchical schematics load correctly
-- [ ] ERC detects cross-sheet connectivity issues
+- [x] Hierarchical schematics load correctly
+- [x] ERC detects cross-sheet connectivity issues
 
 ---
 
@@ -366,16 +367,16 @@ ERC will be added incrementally to the existing kicad-cli-wasm project, followin
 **Goal**: Verify WASM ERC matches native kicad-cli output.
 
 **Tasks**:
-- [ ] Create Node.js test suite comparing WASM vs native results
-- [ ] Test with spork-generated schematics
-- [ ] Document any limitations vs native ERC
-- [ ] Create TypeScript type definitions
-- [ ] Update package.json with ERC exports
+- [x] Create Node.js test suite comparing WASM vs native results
+- [x] Test with spork-generated schematics
+- [x] Document any limitations vs native ERC
+- [x] Create TypeScript type definitions
+- [x] Update package.json with ERC exports
 
 **Success Criteria**:
-- [ ] WASM ERC results match native for all test cases
-- [ ] Performance acceptable (<2s for typical schematics)
-- [ ] Works with spork output
+- [x] WASM ERC results match native for all test cases
+- [x] Performance acceptable (<2s for typical schematics)
+- [x] Works with spork output
 
 ---
 
@@ -427,7 +428,8 @@ Based on DRC experience and eeschema structure:
 // Load a KiCad schematic file from memory
 int kicad_load_schematic(const char* sch_content, size_t length);
 
-// Load an additional schematic sheet (for hierarchical designs)
+// Load an additional schematic sheet (for hierarchical designs).
+// Must be called BEFORE kicad_load_schematic() for the root sheet.
 int kicad_load_schematic_sheet(const char* sheet_path, const char* content, size_t length);
 
 // Run ERC checks on loaded schematic
@@ -486,11 +488,11 @@ void kicad_cleanup_schematic(void);
 After each phase:
 
 - [x] **Phase 1**: Native ERC verified, test files created
-- [ ] **Phase 2**: Schematic parser compiles for WASM
-- [ ] **Phase 3**: CONNECTION_GRAPH compiles for WASM
-- [ ] **Phase 4**: ERC engine runs basic checks in WASM
-- [ ] **Phase 5**: Hierarchical schematics work
-- [ ] **Phase 6**: WASM output matches native, integration complete
+- [x] **Phase 2**: Schematic parser compiles for WASM
+- [x] **Phase 3**: CONNECTION_GRAPH compiles for WASM
+- [x] **Phase 4**: ERC engine runs basic checks in WASM
+- [x] **Phase 5**: Hierarchical schematics work
+- [x] **Phase 6**: WASM output matches native, integration complete
 
 ---
 
