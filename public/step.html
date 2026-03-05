@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STEP Export &#8212; KiCad WASM Tools</title>
+    <script src="coi-serviceworker.js"></script>
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .status-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+        .status-group .status {
+            margin-bottom: 0.5rem;
+        }
+        .stats-panel {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .stat {
+            text-align: center;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 8px;
+        }
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+        #viewer-container {
+            position: relative;
+            width: 100%;
+            height: 500px;
+            background: #1e293b;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+        }
+        #viewer-container canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .viewer-hint {
+            position: absolute;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.5);
+            font-size: 0.85rem;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>STEP Export</h1>
+            <p class="subtitle">Extract PCB geometry and generate 3D STEP models in the browser</p>
+        </header>
+
+        <div id="header-warning" class="header-warning" style="display: none;">
+            <strong>Note:</strong> This page requires <code>SharedArrayBuffer</code> for multi-threaded WASM.
+            If loading fails, ensure the page is served with the proper COOP/COEP headers.
+        </div>
+
+        <div class="card">
+            <div class="status-group">
+                <div id="kicad-status" class="status loading">
+                    <div class="spinner"></div>
+                    <span>Loading KiCad WASM module (9.6 MB)...</span>
+                </div>
+                <div id="occ-status" class="status" style="background: #f1f5f9; color: var(--text-muted);">
+                    <span>opencascade.js &#8212; will load on demand (~63 MB)</span>
+                </div>
+            </div>
+
+            <div class="drop-zone" id="drop-zone">
+                <div class="drop-zone-icon">&#128193;</div>
+                <p><strong>Drop your .kicad_pcb file here</strong></p>
+                <p class="hint">or click to browse</p>
+                <input type="file" id="file-input" accept=".kicad_pcb">
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-secondary" id="use-sample" disabled>Use Sample PCB</button>
+                <button class="btn btn-primary" id="generate-step" disabled style="display: none;">Generate STEP</button>
+            </div>
+
+            <div id="file-info" class="file-info" style="display: none;">
+                <span class="file-name" id="file-name"></span>
+                <button class="btn btn-secondary" id="clear-file" style="padding: 0.5rem 1rem;">Clear</button>
+            </div>
+        </div>
+
+        <div id="stats-card" class="card" style="display: none;">
+            <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">Board Geometry</h2>
+            <div class="stats-panel">
+                <div class="stat">
+                    <div class="stat-value" id="stat-dimensions">-</div>
+                    <div class="stat-label">Dimensions (mm)</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-thickness">-</div>
+                    <div class="stat-label">Thickness (mm)</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-copper-layers">-</div>
+                    <div class="stat-label">Copper Layers</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-holes">-</div>
+                    <div class="stat-label">Drill Holes</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="stat-components">-</div>
+                    <div class="stat-label">Components</div>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" id="generate-step-2" disabled>Generate STEP</button>
+                <button class="btn btn-secondary" id="download-step" disabled style="display: none;">Download .step</button>
+            </div>
+        </div>
+
+        <div id="viewer-card" class="card" style="display: none;">
+            <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">3D Preview</h2>
+            <div id="viewer-container">
+                <div class="viewer-hint">Click and drag to rotate</div>
+            </div>
+        </div>
+
+        <div id="json-section" class="card" style="display: none;">
+            <button class="toggle-json" id="toggle-json">Show raw JSON</button>
+            <div id="json-container" style="display: none; margin-top: 0.5rem;">
+                <pre class="json-output" id="json-output"></pre>
+            </div>
+        </div>
+
+        <footer>
+            <p>
+                Built with <a href="https://www.kicad.org/" target="_blank">KiCad</a>,
+                <a href="https://emscripten.org/" target="_blank">Emscripten</a> &amp;
+                <a href="https://ocjs.org/" target="_blank">opencascade.js</a>
+            </p>
+            <p style="margin-top: 0.5rem;">
+                <a href="https://gitlab.com/henrybtroutman/kicad-cli-wasm" target="_blank">View Source</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="nav.js"></script>
+    <script type="module">
+        let Module = null;
+        let currentPcbContent = null;
+        let geometryData = null;
+        let currentFileName = 'board';
+
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const useSampleBtn = document.getElementById('use-sample');
+        const generateStepBtn = document.getElementById('generate-step');
+        const generateStepBtn2 = document.getElementById('generate-step-2');
+        const downloadStepBtn = document.getElementById('download-step');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const clearFileBtn = document.getElementById('clear-file');
+        const kicadStatus = document.getElementById('kicad-status');
+        const occStatus = document.getElementById('occ-status');
+        const headerWarning = document.getElementById('header-warning');
+        const statsCard = document.getElementById('stats-card');
+        const viewerCard = document.getElementById('viewer-card');
+        const jsonSection = document.getElementById('json-section');
+        const toggleJson = document.getElementById('toggle-json');
+        const jsonContainer = document.getElementById('json-container');
+        const jsonOutput = document.getElementById('json-output');
+
+        // Check for SharedArrayBuffer support
+        if (typeof SharedArrayBuffer === 'undefined') {
+            headerWarning.style.display = 'block';
+            kicadStatus.className = 'status error';
+            kicadStatus.innerHTML = '<span>SharedArrayBuffer not available. Multi-threaded WASM requires COOP/COEP headers.</span>';
+        } else {
+            loadModule();
+        }
+
+        async function loadModule() {
+            try {
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
+                Module = await createKicadDRC({
+                    print: (text) => console.log('[WASM]', text),
+                    printErr: (text) => console.error('[WASM]', text),
+                    locateFile: (path) => './' + path,
+                    mainScriptUrlOrBlob: './kicad_drc.mjs'
+                });
+
+                await new Promise(r => setTimeout(r, 1000));
+
+                kicadStatus.className = 'status success';
+                kicadStatus.innerHTML = '<span>KiCad WASM module loaded successfully</span>';
+                useSampleBtn.disabled = false;
+            } catch (err) {
+                console.error('Failed to load WASM module:', err);
+                kicadStatus.className = 'status error';
+                kicadStatus.innerHTML = `<span>Failed to load WASM module: ${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // Drag and drop handling
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file) handleFile(file);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) handleFile(file);
+        });
+
+        async function handleFile(file) {
+            if (!file.name.endsWith('.kicad_pcb')) {
+                alert('Please select a .kicad_pcb file');
+                return;
+            }
+
+            currentPcbContent = await file.text();
+            currentFileName = file.name.replace('.kicad_pcb', '');
+            fileName.textContent = file.name;
+            fileInfo.style.display = 'flex';
+            dropZone.style.display = 'none';
+            statsCard.style.display = 'none';
+            viewerCard.style.display = 'none';
+            jsonSection.style.display = 'none';
+            generateStepBtn.style.display = 'none';
+            downloadStepBtn.style.display = 'none';
+
+            if (Module) {
+                extractGeometry();
+            }
+        }
+
+        clearFileBtn.addEventListener('click', () => {
+            currentPcbContent = null;
+            geometryData = null;
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            dropZone.style.display = 'block';
+            statsCard.style.display = 'none';
+            viewerCard.style.display = 'none';
+            jsonSection.style.display = 'none';
+            generateStepBtn.style.display = 'none';
+            downloadStepBtn.style.display = 'none';
+        });
+
+        useSampleBtn.addEventListener('click', async () => {
+            try {
+                useSampleBtn.disabled = true;
+                useSampleBtn.textContent = 'Loading...';
+
+                const response = await fetch('./sample.kicad_pcb');
+                currentPcbContent = await response.text();
+                currentFileName = 'sample';
+
+                fileName.textContent = 'sample.kicad_pcb';
+                fileInfo.style.display = 'flex';
+                dropZone.style.display = 'none';
+                statsCard.style.display = 'none';
+                viewerCard.style.display = 'none';
+                jsonSection.style.display = 'none';
+
+                if (Module) {
+                    extractGeometry();
+                }
+            } catch (err) {
+                alert('Failed to load sample PCB: ' + err.message);
+            } finally {
+                useSampleBtn.disabled = false;
+                useSampleBtn.textContent = 'Use Sample PCB';
+            }
+        });
+
+        function extractGeometry() {
+            if (!Module || !currentPcbContent) return;
+
+            try {
+                const len = Module.lengthBytesUTF8(currentPcbContent) + 1;
+                const ptr = Module._malloc(len);
+                Module.stringToUTF8(currentPcbContent, ptr, len);
+
+                const rc = Module._kicad_load_pcb(ptr, 0);
+                Module._free(ptr);
+
+                if (rc !== 0) {
+                    throw new Error(`Failed to load PCB (error code: ${rc})`);
+                }
+
+                const jsonPtr = Module._kicad_get_pcb_geometry();
+                const jsonStr = Module.UTF8ToString(jsonPtr);
+                geometryData = JSON.parse(jsonStr);
+
+                Module._kicad_cleanup();
+
+                displayStats(geometryData);
+            } catch (err) {
+                console.error('Geometry extraction failed:', err);
+                alert('Failed to extract geometry: ' + err.message);
+            }
+        }
+
+        function displayStats(geo) {
+            // Calculate board dimensions from outline bounding box
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            const polygons = geo.board?.outline?.polygons || [];
+            for (const poly of polygons) {
+                for (const pt of (poly.outline || [])) {
+                    if (pt[0] < minX) minX = pt[0];
+                    if (pt[1] < minY) minY = pt[1];
+                    if (pt[0] > maxX) maxX = pt[0];
+                    if (pt[1] > maxY) maxY = pt[1];
+                }
+            }
+
+            const width = maxX - minX;
+            const height = maxY - minY;
+
+            document.getElementById('stat-dimensions').textContent =
+                isFinite(width) ? `${width.toFixed(1)} x ${height.toFixed(1)}` : '-';
+            document.getElementById('stat-thickness').textContent =
+                geo.board?.thickness_mm?.toFixed(2) || '-';
+            document.getElementById('stat-copper-layers').textContent =
+                geo.copper_layer_count || '-';
+            document.getElementById('stat-holes').textContent =
+                (geo.drill_holes || []).length;
+            document.getElementById('stat-components').textContent =
+                (geo.components || []).length;
+
+            statsCard.style.display = 'block';
+            generateStepBtn.style.display = 'inline-block';
+            generateStepBtn.disabled = false;
+            generateStepBtn2.disabled = false;
+
+            jsonSection.style.display = 'block';
+            jsonOutput.textContent = JSON.stringify(geo, null, 2);
+        }
+
+        // Both generate buttons trigger same action
+        generateStepBtn.addEventListener('click', () => {
+            alert('STEP generation will be implemented in Stage 6.');
+        });
+        generateStepBtn2.addEventListener('click', () => {
+            alert('STEP generation will be implemented in Stage 6.');
+        });
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        toggleJson.addEventListener('click', () => {
+            const isHidden = jsonContainer.style.display === 'none';
+            jsonContainer.style.display = isHidden ? 'block' : 'none';
+            toggleJson.textContent = isHidden ? 'Hide raw JSON' : 'Show raw JSON';
+        });
+    </script>
+</body>
+</html>

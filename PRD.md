@@ -223,7 +223,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 **Goal**: Create STEP page with file drop and geometry stats display.
 
 **Tasks**:
-- [ ] 5a. Create `public/step.html` with layout:
+- [x] 5a. Create `public/step.html` with layout:
   - Links to `shared.css`, loads `nav.js`
   - Title: "STEP Export — KiCad WASM Tools"
   - Two status bars: "KiCad WASM" (loads immediately) + "opencascade.js" (shows "will load on demand")
@@ -231,17 +231,17 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
   - Stats panel (hidden initially): board dimensions, thickness, copper layers, holes, components
   - 3D viewer canvas (hidden initially): 500px height, dark background
   - Action buttons: "Generate STEP" (hidden until file loaded), "Download .step" (hidden until built)
-- [ ] 5b. Implement KiCad WASM loading + geometry extraction:
+- [x] 5b. Implement KiCad WASM loading + geometry extraction:
   - Same WASM loading pattern as DRC/ERC pages
   - On file load: `_kicad_load_pcb()` then `_kicad_get_pcb_geometry()`
   - Parse geometry JSON, show stats (board W x H mm, thickness, N copper layers, N holes, N components)
   - Show "Generate STEP" button after geometry extracted
-- [ ] 5c. Verify: drop sample.kicad_pcb, stats populate correctly
+- [x] 5c. Verify: drop sample.kicad_pcb, stats populate correctly
 
 **Success Criteria**:
-- [ ] STEP page loads, accepts .kicad_pcb files
-- [ ] Geometry stats display correctly
-- [ ] "Generate STEP" button appears after file loaded
+- [x] STEP page loads, accepts .kicad_pcb files
+- [x] Geometry stats display correctly
+- [x] "Generate STEP" button appears after file loaded
 
 ---
 
@@ -343,6 +343,6 @@ After push, GitLab Pages deploys automatically. URLs:
 - [x] **Stage 2**: DRC page works
 - [x] **Stage 3**: ERC page works
 - [x] **Stage 4**: WASM binaries updated
-- [ ] **Stage 5**: STEP page layout + geometry
+- [x] **Stage 5**: STEP page layout + geometry
 - [ ] **Stage 6**: STEP 3D preview works
 - [ ] **Stage 7**: All polished, committed, pushed
