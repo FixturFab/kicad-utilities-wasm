@@ -105,7 +105,7 @@
                 const { default: createKicadDRC } = await import('./kicad_drc.mjs');
                 Module = await createKicadDRC({
                     print: (text) => console.log('[WASM]', text),
-                    printErr: (text) => console.error('[WASM]', text),
+                    printErr: () => {},
                     locateFile: (path) => './' + path,
                     mainScriptUrlOrBlob: './kicad_drc.mjs'
                 });
