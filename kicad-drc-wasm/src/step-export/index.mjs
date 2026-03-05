@@ -16,7 +16,8 @@ let ocInstance = null;
  * @param {object} [options] - Export options
  * @param {boolean} [options.includeCopperLayers=true] - Include copper layers (future)
  * @param {boolean} [options.includeDrillHoles=true] - Include drill holes (future)
- * @param {boolean} [options.includeComponents=true] - Include 3D models (future)
+ * @param {boolean} [options.includeComponents=true] - Include 3D component models
+ * @param {object} [options.modelResolver] - Object with resolve(filename) → Promise<Uint8Array|null>
  * @returns {Promise<Uint8Array>} STEP file data
  */
 export async function exportPcbToStep(geometryJson, options = {}) {

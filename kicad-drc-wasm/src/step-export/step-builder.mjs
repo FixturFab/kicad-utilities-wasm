@@ -316,47 +316,125 @@ export class StepBuilder {
   }
 
   /**
-   * Build the board body and export as STEP.
-   * Options: includeDrillHoles, includeCopperLayers.
+   * Read a STEP model from binary data (Uint8Array) and return its shape.
+   * Writes data to the virtual FS, reads with STEPControl_Reader, cleans up.
+   * Returns null if the data cannot be parsed.
    */
-  buildAndExport(options = {}) {
+  readStepModel(data) {
+    const oc = this.oc;
+    const outDir = '/home/web_user';
+    try { oc.FS.mkdir('/home'); } catch (e) { /* exists */ }
+    try { oc.FS.mkdir(outDir); } catch (e) { /* exists */ }
+
+    // Use a short filename to avoid the SSO bug (<=10 chars)
+    const tmpName = 'c.step';
+    const tmpPath = outDir + '/' + tmpName;
+
+    try {
+      oc.FS.writeFile(tmpPath, data);
+      const prevCwd = oc.FS.cwd();
+      oc.FS.chdir(outDir);
+
+      const reader = new oc.STEPControl_Reader_1();
+      const status = reader.ReadFile(tmpName);
+      const done = oc.IFSelect_ReturnStatus.IFSelect_RetDone;
+
+      if (status.value !== done.value) {
+        reader.delete();
+        oc.FS.chdir(prevCwd);
+        return null;
+      }
+
+      reader.TransferRoots();
+      const shape = reader.OneShape();
+      const isNull = shape.IsNull();
+      reader.delete();
+      oc.FS.chdir(prevCwd);
+
+      return isNull ? null : shape;
+    } catch (e) {
+      return null;
+    } finally {
+      try { oc.FS.unlink(tmpPath); } catch (e) { /* ignore */ }
+    }
+  }
+
+  /**
+   * Load all component 3D models using the modelResolver.
+   * Returns an array of { shape, component, model } for successfully loaded models.
+   */
+  async loadComponentModels(modelResolver) {
+    const components = this.geometry.components;
+    if (!components || components.length === 0 || !modelResolver) return [];
+
+    const results = [];
+    for (const comp of components) {
+      if (!comp.models || comp.models.length === 0) continue;
+      for (const model of comp.models) {
+        if (!model.filename) continue;
+        try {
+          const data = await modelResolver.resolve(model.filename);
+          if (!data) continue;
+          const shape = this.readStepModel(data);
+          if (!shape) continue;
+          results.push({ shape, component: comp, model });
+        } catch (e) {
+          // Skip models that fail to load
+          continue;
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Build the board body and export as STEP.
+   * Options: includeDrillHoles, includeCopperLayers, includeComponents, modelResolver.
+   */
+  async buildAndExport(options = {}) {
     const oc = this.oc;
     const includeDrillHoles = options.includeDrillHoles !== false;
     const includeCopperLayers = options.includeCopperLayers !== false;
+    const includeComponents = options.includeComponents !== false;
 
     let boardShape = this.buildBoardBody();
     if (includeDrillHoles) {
       boardShape = this.cutDrillHoles(boardShape);
     }
 
-    // If no copper layers requested, just export the board
-    if (!includeCopperLayers) {
-      return this.writeStep(boardShape);
-    }
-
     // Build copper layer solids
-    let copperSolids = this.buildAllCopperLayers();
-
-    // Cut holes from copper if needed
-    if (includeDrillHoles && copperSolids.length > 0) {
-      const copperLayers = (this.geometry.copper_layers || []).filter(
-        l => l.polygons && l.polygons.length > 0
-      );
-      copperSolids = this.cutHolesFromCopperSolids(copperSolids, copperLayers);
+    let copperSolids = [];
+    if (includeCopperLayers) {
+      copperSolids = this.buildAllCopperLayers();
+      if (includeDrillHoles && copperSolids.length > 0) {
+        const copperLayers = (this.geometry.copper_layers || []).filter(
+          l => l.polygons && l.polygons.length > 0
+        );
+        copperSolids = this.cutHolesFromCopperSolids(copperSolids, copperLayers);
+      }
     }
 
-    // If no copper solids, just export the board
-    if (copperSolids.length === 0) {
+    // Load component 3D models
+    let componentModels = [];
+    if (includeComponents && options.modelResolver) {
+      componentModels = await this.loadComponentModels(options.modelResolver);
+    }
+
+    // If only the board body, no compound needed
+    if (copperSolids.length === 0 && componentModels.length === 0) {
       return this.writeStep(boardShape);
     }
 
-    // Assemble into compound: board + all copper solids
+    // Assemble into compound: board + copper + component models
     const compound = new oc.TopoDS_Compound();
     const builder = new oc.BRep_Builder();
     builder.MakeCompound(compound);
     builder.Add(compound, boardShape);
     for (const solid of copperSolids) {
       builder.Add(compound, solid);
+    }
+    for (const { shape } of componentModels) {
+      builder.Add(compound, shape);
     }
 
     return this.writeStep(compound);

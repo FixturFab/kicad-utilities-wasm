@@ -361,7 +361,7 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
 **Goal**: Load component STEP files and place them at correct positions on the board.
 
 **Tasks**:
-- [ ] 6a. Implement STEP model reader:
+- [x] 6a. Implement STEP model reader:
   - `STEPControl_Reader` to load component .step files
   - `ModelResolver` interface for callers to provide STEP file data:
     ```typescript

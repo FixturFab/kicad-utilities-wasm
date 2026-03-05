@@ -68,3 +68,18 @@
 - Geometry regression: 72/72 pass
 - ERC regression: 155/155 pass
 - Stage 5 COMPLETE
+
+### Stage 6a - TypeScript: STEP Model Reader + ModelResolver
+- Added readStepModel(data) to StepBuilder: writes Uint8Array to virtual FS, reads with STEPControl_Reader, returns shape or null
+- Added loadComponentModels(modelResolver) async method: iterates components/models, calls resolver, loads shapes
+- Made buildAndExport() async, added includeComponents + modelResolver options
+- Updated index.mjs JSDoc for new options
+- STEPControl_Reader round-trip verified: ReadFile status.value === 1 means IFSelect_RetDone
+- Invalid STEP data returns null gracefully (no crash)
+- Missing models (resolver returns null) are skipped without error
+- No modelResolver provided → components silently skipped
+- Updated test-step-export.mjs: 13 new assertions (readStepModel valid/invalid, ModelResolver integration, missing models, no resolver)
+- Test passes: 51 assertions (38 Stage 3-5 + 13 Stage 6a)
+- Geometry regression: 72/72 pass
+- ERC regression: 155/155 pass
+- Stage 6a COMPLETE

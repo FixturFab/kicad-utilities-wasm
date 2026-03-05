@@ -306,6 +306,164 @@ if (process.env.WRITE_STEP) {
   console.log('  Written to:', outCu);
 }
 
+// =============================================
+// Stage 6a: Component STEP Model Reader Test
+// =============================================
+console.log();
+console.log('--- Stage 6a: Component STEP Model Reader Test ---');
+
+// First, create a synthetic component STEP model (a small box) using opencascade.js
+console.log('[13/18] Creating synthetic component STEP model...');
+const { initOpenCascade, StepBuilder } = await import('../src/step-export/step-builder.mjs');
+
+// We need the oc instance - get it by calling exportPcbToStep once to warm it up,
+// then create a builder to access oc
+const dummyGeom = {
+  format_version: 1, units: 'mm',
+  board: { outline: { polygons: [{ outline: [[0,0],[10,0],[10,10],[0,10]], holes: [] }] }, thickness_mm: 1.6 },
+  stackup: [], copper_layers: [], holes: [], components: []
+};
+const { exportPcbToStep: exportFn } = await import('../src/step-export/index.mjs');
+// Initialize OC by doing a dummy export
+await exportFn(dummyGeom, { includeCopperLayers: false, includeDrillHoles: false, includeComponents: false });
+
+// Now get oc instance from initOpenCascade (it caches)
+const oc = await initOpenCascade();
+
+// Create a component STEP model: a 5x3x2mm box at origin
+const compPt = new oc.gp_Pnt_3(0, 0, 0);
+const compBox = new oc.BRepPrimAPI_MakeBox_2(compPt, 5, 3, 2);
+const compWriter = new oc.STEPControl_Writer_1();
+compWriter.Transfer(compBox.Shape(), oc.STEPControl_StepModelType.STEPControl_AsIs, true);
+try { oc.FS.mkdir('/home'); } catch(e) {}
+try { oc.FS.mkdir('/home/web_user'); } catch(e) {}
+oc.FS.chdir('/home/web_user');
+compWriter.Write('m.step');
+compWriter.delete();
+compBox.delete();
+const componentStepData = new Uint8Array(oc.FS.readFile('/home/web_user/m.step'));
+oc.FS.unlink('/home/web_user/m.step');
+console.log('  Component STEP model size:', componentStepData.length, 'bytes');
+assert(componentStepData.length > 1000, 'Component STEP model should be >1KB');
+
+// 6a-1: Test readStepModel directly
+console.log('[14/18] Testing readStepModel() with valid STEP data...');
+const testBuilder = new StepBuilder(oc, dummyGeom);
+const loadedShape = testBuilder.readStepModel(componentStepData);
+assert(loadedShape !== null, 'readStepModel should return a shape for valid STEP data');
+assert(!loadedShape.IsNull(), 'Loaded shape should not be null');
+console.log('  Shape loaded successfully');
+
+// 6a-2: Test readStepModel with invalid data
+console.log('[15/18] Testing readStepModel() with invalid data...');
+const invalidData = new Uint8Array([0x00, 0x01, 0x02, 0x03, 0xFF]);
+const badShape = testBuilder.readStepModel(invalidData);
+assert(badShape === null, 'readStepModel should return null for invalid STEP data');
+console.log('  Invalid data handled gracefully');
+
+// 6a-3: Test ModelResolver with components
+console.log('[16/18] Testing ModelResolver integration...');
+const compGeometry = {
+  format_version: 1, units: 'mm',
+  board: {
+    outline: { polygons: [{ outline: [[0,0],[50,0],[50,30],[0,30]], holes: [] }] },
+    thickness_mm: 1.6
+  },
+  stackup: [],
+  copper_layers: [],
+  holes: [],
+  components: [
+    {
+      reference: 'U1',
+      footprint: 'Package_SO:SOIC-8',
+      position: { x_mm: 25, y_mm: 15 },
+      rotation_deg: 0,
+      side: 'top',
+      models: [
+        {
+          filename: 'Package_SO.3dshapes/SOIC-8.step',
+          offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+          rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+          scale: { x: 1, y: 1, z: 1 }
+        }
+      ]
+    }
+  ]
+};
+
+let resolveCallCount = 0;
+let resolvedFilenames = [];
+const modelResolver = {
+  resolve: async (filename) => {
+    resolveCallCount++;
+    resolvedFilenames.push(filename);
+    if (filename === 'Package_SO.3dshapes/SOIC-8.step') {
+      return componentStepData;
+    }
+    return null;
+  }
+};
+
+const stepWithModel = await exportFn(compGeometry, {
+  includeDrillHoles: false,
+  includeCopperLayers: false,
+  includeComponents: true,
+  modelResolver
+});
+assert(stepWithModel instanceof Uint8Array, 'STEP with component should be Uint8Array');
+assert(resolveCallCount === 1, `ModelResolver should be called once, got ${resolveCallCount}`);
+assert(resolvedFilenames[0] === 'Package_SO.3dshapes/SOIC-8.step',
+  `Should resolve correct filename, got ${resolvedFilenames[0]}`);
+console.log('  STEP with component size:', stepWithModel.length, 'bytes');
+
+// Compare to board-only STEP
+const stepBoardOnly = await exportFn(compGeometry, {
+  includeDrillHoles: false, includeCopperLayers: false, includeComponents: false
+});
+assert(stepWithModel.length > stepBoardOnly.length,
+  `STEP with model (${stepWithModel.length}) should be larger than board only (${stepBoardOnly.length})`);
+console.log(`  Board only: ${stepBoardOnly.length} bytes, with model: ${stepWithModel.length} bytes`);
+
+// Verify compound has the component shape
+const modelStepText = new TextDecoder().decode(stepWithModel);
+const modelShellCount = (modelStepText.match(/CLOSED_SHELL/g) || []).length;
+const boardOnlyText = new TextDecoder().decode(stepBoardOnly);
+const boardOnlyShellCount = (boardOnlyText.match(/CLOSED_SHELL/g) || []).length;
+assert(modelShellCount > boardOnlyShellCount,
+  `Should have more CLOSED_SHELLs with model (${modelShellCount}) vs without (${boardOnlyShellCount})`);
+
+// 6a-4: Test missing model is skipped
+console.log('[17/18] Testing missing model is skipped gracefully...');
+const missingModelGeom = {
+  ...compGeometry,
+  components: [{
+    reference: 'U2',
+    footprint: 'Package_QFP:QFP-44',
+    position: { x_mm: 10, y_mm: 10 },
+    rotation_deg: 0,
+    side: 'top',
+    models: [{ filename: 'nonexistent.step', offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+               rotation: { x_deg: 0, y_deg: 0, z_deg: 0 }, scale: { x: 1, y: 1, z: 1 } }]
+  }]
+};
+const nullResolver = { resolve: async () => null };
+const stepMissing = await exportFn(missingModelGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: nullResolver
+});
+assert(stepMissing instanceof Uint8Array, 'Should still produce STEP when model is missing');
+assert(stepMissing.length > 1000, 'Board STEP should still be >1KB');
+console.log('  Missing model handled gracefully');
+
+// 6a-5: Test no modelResolver with includeComponents=true (should work, just skip components)
+console.log('[18/18] Testing includeComponents=true with no modelResolver...');
+const stepNoResolver = await exportFn(compGeometry, {
+  includeDrillHoles: false, includeCopperLayers: false, includeComponents: true
+});
+assert(stepNoResolver instanceof Uint8Array, 'Should produce STEP without modelResolver');
+assert(stepNoResolver.length > 1000, 'Board STEP should still be >1KB');
+console.log('  No resolver handled gracefully');
+
 console.log();
 console.log(`=== RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} (${passed} passed, ${failed} failed) ===`);
 
