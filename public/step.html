@@ -400,6 +400,16 @@
         });
 
         // ── OpenCascade lazy loading ──
+        // opencascade.js v1.1.1 (older Emscripten build) references ___cxa_can_catch
+        // and ___cxa_is_pointer_type as bare globals for C++ exception handling.
+        // Provide stubs so boolean operations that throw don't crash the runtime.
+        if (typeof globalThis.___cxa_can_catch === 'undefined') {
+            globalThis.___cxa_can_catch = function(catchType, thrownType, adjustedPtr) { return 0; };
+        }
+        if (typeof globalThis.___cxa_is_pointer_type === 'undefined') {
+            globalThis.___cxa_is_pointer_type = function(type) { return 0; };
+        }
+
         async function initOCC() {
             if (oc) return oc;
 
@@ -511,14 +521,19 @@
                     return boardShape;
                 }
 
-                let fusedHoles = cylinders[0];
-                for (let i = 1; i < cylinders.length; i++) {
-                    const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
-                    fusedHoles = fuse.Shape();
-                }
+                try {
+                    let fusedHoles = cylinders[0];
+                    for (let i = 1; i < cylinders.length; i++) {
+                        const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+                        fusedHoles = fuse.Shape();
+                    }
 
-                const cut = new oc.BRepAlgoAPI_Cut_3(boardShape, fusedHoles);
-                return cut.Shape();
+                    const cut = new oc.BRepAlgoAPI_Cut_3(boardShape, fusedHoles);
+                    return cut.Shape();
+                } catch (e) {
+                    console.warn('Boolean drill hole cut failed, returning board without holes:', e.message);
+                    return boardShape;
+                }
             }
 
             buildCopperLayerSolids(copperLayer) {
@@ -581,15 +596,26 @@
 
                 if (cylinders.length === 0) return solids;
 
-                let fusedHoles = cylinders[0];
-                for (let i = 1; i < cylinders.length; i++) {
-                    const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
-                    fusedHoles = fuse.Shape();
+                let fusedHoles;
+                try {
+                    fusedHoles = cylinders[0];
+                    for (let i = 1; i < cylinders.length; i++) {
+                        const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
+                        fusedHoles = fuse.Shape();
+                    }
+                } catch (e) {
+                    console.warn('Fusing hole cylinders failed, skipping copper hole cuts:', e.message);
+                    return solids;
                 }
 
                 return solids.map(solid => {
-                    const cut = new oc.BRepAlgoAPI_Cut_3(solid, fusedHoles);
-                    return cut.Shape();
+                    try {
+                        const cut = new oc.BRepAlgoAPI_Cut_3(solid, fusedHoles);
+                        return cut.Shape();
+                    } catch (e) {
+                        console.warn('Boolean cut failed on copper solid, keeping original:', e.message);
+                        return solid;
+                    }
                 });
             }
 
