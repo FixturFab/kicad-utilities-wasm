@@ -32,9 +32,13 @@
 // KiCad headers - PCB geometry extraction
 #include <board_stackup_manager/board_stackup.h>
 #include <footprint.h>
+#include <pad.h>
+#include <pcb_track.h>
+#include <zone.h>
 #include <geometry/shape_poly_set.h>
 #include <geometry/shape_line_chain.h>
 #include <layer_ids.h>
+#include <lset.h>
 #include <nlohmann/json.hpp>
 
 // KiCad headers - ERC
@@ -407,6 +411,196 @@ const char* kicad_get_pcb_geometry( void )
         }
 
         result["components"] = componentsJson;
+
+        // ── Copper layers ─────────────────────────────────────────────
+        nlohmann::json copperLayersJson = nlohmann::json::array();
+
+        // Build a map of copper layer z_offset and thickness from stackup
+        std::map<PCB_LAYER_ID, double> copperZOffset;
+        std::map<PCB_LAYER_ID, double> copperThickness;
+        double zOff = 0.0;
+
+        for( int i = 0; i < stackup.GetCount(); i++ )
+        {
+            BOARD_STACKUP_ITEM* item = stackup.GetStackupLayer( i );
+            if( !item || !item->IsEnabled() )
+                continue;
+
+            double thk = pcbIUScale.IUTomm( item->GetThickness() );
+
+            if( item->GetType() == BS_ITEM_TYPE_COPPER )
+            {
+                PCB_LAYER_ID lid = item->GetBrdLayerId();
+                copperZOffset[lid] = zOff;
+                copperThickness[lid] = thk;
+            }
+
+            zOff += thk;
+        }
+
+        // Get enabled copper layers
+        LSET enabledCu = g_board->GetEnabledLayers() & LSET::AllCuMask();
+        LSEQ cuSeq = enabledCu.Seq();
+
+        for( PCB_LAYER_ID layer : cuSeq )
+        {
+            SHAPE_POLY_SET layerPolys;
+
+            // Collect pad shapes on this layer
+            for( const FOOTPRINT* fp : g_board->Footprints() )
+            {
+                for( const PAD* pad : fp->Pads() )
+                {
+                    if( pad->IsOnLayer( layer ) )
+                    {
+                        pad->TransformShapeToPolygon( layerPolys, layer, 0,
+                                                      ARC_LOW_DEF, ERROR_INSIDE );
+                    }
+                }
+            }
+
+            // Collect track shapes on this layer
+            for( const PCB_TRACK* track : g_board->Tracks() )
+            {
+                if( track->Type() == PCB_VIA_T )
+                {
+                    const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
+                    if( via->IsOnLayer( layer ) )
+                    {
+                        via->TransformShapeToPolygon( layerPolys, layer, 0,
+                                                      ARC_LOW_DEF, ERROR_INSIDE );
+                    }
+                }
+                else
+                {
+                    if( track->IsOnLayer( layer ) )
+                    {
+                        track->TransformShapeToPolygon( layerPolys, layer, 0,
+                                                         ARC_LOW_DEF, ERROR_INSIDE );
+                    }
+                }
+            }
+
+            // Collect zone fill polygons on this layer
+            for( const ZONE* zone : g_board->Zones() )
+            {
+                if( zone->IsOnCopperLayer() && zone->GetLayerSet().test( layer )
+                    && zone->IsFilled() )
+                {
+                    zone->TransformSolidAreasShapesToPolygon( layer, layerPolys );
+                }
+            }
+
+            // Simplify and serialize
+            layerPolys.ClearArcs();
+            layerPolys.Simplify();
+
+            nlohmann::json layerCuJson;
+            layerCuJson["layer_id"] = std::string( g_board->GetLayerName( layer ).mb_str() );
+            layerCuJson["z_start_mm"] = copperZOffset.count( layer ) ? copperZOffset[layer] : 0.0;
+            layerCuJson["thickness_mm"] = copperThickness.count( layer )
+                                              ? copperThickness[layer] : 0.035;
+
+            nlohmann::json cuPolygonsJson = nlohmann::json::array();
+
+            for( int i = 0; i < layerPolys.OutlineCount(); i++ )
+            {
+                nlohmann::json polyJson;
+
+                const SHAPE_LINE_CHAIN& outline = layerPolys.COutline( i );
+                nlohmann::json outlinePoints = nlohmann::json::array();
+
+                for( int j = 0; j < outline.PointCount(); j++ )
+                {
+                    const VECTOR2I& pt = outline.CPoint( j );
+                    outlinePoints.push_back( { pcbIUScale.IUTomm( pt.x ),
+                                               pcbIUScale.IUTomm( pt.y ) } );
+                }
+
+                polyJson["outline"] = outlinePoints;
+
+                nlohmann::json holesJson = nlohmann::json::array();
+
+                for( int h = 0; h < layerPolys.HoleCount( i ); h++ )
+                {
+                    const SHAPE_LINE_CHAIN& hole = layerPolys.CHole( i, h );
+                    nlohmann::json holePoints = nlohmann::json::array();
+
+                    for( int j = 0; j < hole.PointCount(); j++ )
+                    {
+                        const VECTOR2I& pt = hole.CPoint( j );
+                        holePoints.push_back( { pcbIUScale.IUTomm( pt.x ),
+                                                pcbIUScale.IUTomm( pt.y ) } );
+                    }
+
+                    holesJson.push_back( holePoints );
+                }
+
+                polyJson["holes"] = holesJson;
+                cuPolygonsJson.push_back( polyJson );
+            }
+
+            layerCuJson["polygons"] = cuPolygonsJson;
+            copperLayersJson.push_back( layerCuJson );
+        }
+
+        result["copper_layers"] = copperLayersJson;
+
+        // ── Drill holes ──────────────────────────────────────────────
+        nlohmann::json holesJson = nlohmann::json::array();
+
+        // Holes from pads
+        for( const FOOTPRINT* fp : g_board->Footprints() )
+        {
+            for( const PAD* pad : fp->Pads() )
+            {
+                if( !pad->HasHole() )
+                    continue;
+
+                nlohmann::json holeJson;
+                holeJson["type"] = ( pad->GetAttribute() == PAD_ATTRIB::NPTH ) ? "npth" : "pth";
+
+                VECTOR2I pos = pad->GetPosition();
+                holeJson["x_mm"] = pcbIUScale.IUTomm( pos.x );
+                holeJson["y_mm"] = pcbIUScale.IUTomm( pos.y );
+                holeJson["diameter_mm"] = pcbIUScale.IUTomm( pad->GetDrillSizeX() );
+                holeJson["top_layer"] = std::string(
+                        g_board->GetLayerName( F_Cu ).mb_str() );
+                holeJson["bottom_layer"] = std::string(
+                        g_board->GetLayerName( B_Cu ).mb_str() );
+
+                if( pad->GetAttribute() != PAD_ATTRIB::NPTH )
+                    holeJson["plating_thickness_mm"] = 0.025;
+
+                holesJson.push_back( holeJson );
+            }
+        }
+
+        // Holes from vias
+        for( const PCB_TRACK* track : g_board->Tracks() )
+        {
+            if( track->Type() != PCB_VIA_T )
+                continue;
+
+            const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
+
+            nlohmann::json holeJson;
+            holeJson["type"] = "pth";
+
+            VECTOR2I pos = via->GetPosition();
+            holeJson["x_mm"] = pcbIUScale.IUTomm( pos.x );
+            holeJson["y_mm"] = pcbIUScale.IUTomm( pos.y );
+            holeJson["diameter_mm"] = pcbIUScale.IUTomm( via->GetDrillValue() );
+            holeJson["top_layer"] = std::string(
+                    g_board->GetLayerName( via->TopLayer() ).mb_str() );
+            holeJson["bottom_layer"] = std::string(
+                    g_board->GetLayerName( via->BottomLayer() ).mb_str() );
+            holeJson["plating_thickness_mm"] = 0.025;
+
+            holesJson.push_back( holeJson );
+        }
+
+        result["holes"] = holesJson;
 
         g_geometry_json_result = result.dump();
         return g_geometry_json_result.c_str();

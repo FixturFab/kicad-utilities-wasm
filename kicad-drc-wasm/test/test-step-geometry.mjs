@@ -1,7 +1,7 @@
 /**
- * Stage 1 test: PCB geometry extraction for STEP export.
+ * Stage 1+2 test: PCB geometry extraction for STEP export.
  *
- * Usage: node --experimental-wasm-threads test-step-geometry.mjs [path-to-kicad_pcb]
+ * Usage: node test-step-geometry.mjs [path-to-kicad_pcb]
  */
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,7 +22,7 @@ function assert(condition, msg) {
     }
 }
 
-console.log('=== Stage 1: PCB Geometry Extraction Test ===');
+console.log('=== Stage 1+2: PCB Geometry Extraction Test ===');
 console.log('PCB file:', pcbPath);
 console.log();
 
@@ -135,6 +135,59 @@ if (firstPoly.outline.length > 0) {
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
     console.log(`  Board extents: ${(maxX - minX).toFixed(2)} x ${(maxY - minY).toFixed(2)} mm`);
+}
+
+// ── Stage 2: Copper layers ──────────────────────────────────
+assert(Array.isArray(geometry.copper_layers), 'copper_layers should be array');
+assert(geometry.copper_layers.length >= 2, `Should have at least 2 copper layers, got ${geometry.copper_layers.length}`);
+console.log('  Copper layer data:', geometry.copper_layers.length, 'layers');
+
+for (const cuLayer of geometry.copper_layers) {
+    assert(typeof cuLayer.layer_id === 'string', 'Copper layer should have layer_id string');
+    assert(typeof cuLayer.z_start_mm === 'number', 'Copper layer should have z_start_mm');
+    assert(typeof cuLayer.thickness_mm === 'number', 'Copper layer should have thickness_mm');
+    assert(cuLayer.thickness_mm > 0, `Copper thickness should be > 0, got ${cuLayer.thickness_mm}`);
+    assert(Array.isArray(cuLayer.polygons), 'Copper layer should have polygons array');
+}
+
+// Check that at least one copper layer has polygons (pads/tracks exist on the board)
+const layersWithPolys = geometry.copper_layers.filter(l => l.polygons.length > 0);
+console.log('  Layers with copper polygons:', layersWithPolys.length);
+
+if (layersWithPolys.length > 0) {
+    const firstCuPoly = layersWithPolys[0].polygons[0];
+    assert(Array.isArray(firstCuPoly.outline), 'Copper polygon should have outline');
+    assert(firstCuPoly.outline.length >= 3, `Copper polygon should have >= 3 vertices, got ${firstCuPoly.outline.length}`);
+    assert(Array.isArray(firstCuPoly.holes), 'Copper polygon should have holes array');
+
+    // Total polygon count
+    const totalCuPolys = geometry.copper_layers.reduce((sum, l) => sum + l.polygons.length, 0);
+    console.log('  Total copper polygons:', totalCuPolys);
+}
+
+// ── Stage 2: Drill holes ────────────────────────────────────
+assert(Array.isArray(geometry.holes), 'holes should be array');
+console.log('  Drill holes:', geometry.holes.length);
+
+if (geometry.holes.length > 0) {
+    for (const hole of geometry.holes) {
+        assert(hole.type === 'pth' || hole.type === 'npth', `Hole type should be pth/npth, got ${hole.type}`);
+        assert(typeof hole.x_mm === 'number', 'Hole x_mm should be number');
+        assert(typeof hole.y_mm === 'number', 'Hole y_mm should be number');
+        assert(typeof hole.diameter_mm === 'number', 'Hole diameter_mm should be number');
+        assert(hole.diameter_mm > 0, `Hole diameter should be > 0, got ${hole.diameter_mm}`);
+        assert(typeof hole.top_layer === 'string', 'Hole top_layer should be string');
+        assert(typeof hole.bottom_layer === 'string', 'Hole bottom_layer should be string');
+    }
+
+    const pthHoles = geometry.holes.filter(h => h.type === 'pth');
+    const npthHoles = geometry.holes.filter(h => h.type === 'npth');
+    console.log(`  PTH holes: ${pthHoles.length}, NPTH holes: ${npthHoles.length}`);
+
+    if (pthHoles.length > 0) {
+        assert(typeof pthHoles[0].plating_thickness_mm === 'number',
+            'PTH holes should have plating_thickness_mm');
+    }
 }
 
 // Cleanup

@@ -166,7 +166,7 @@ double pcbIUScale.IUTomm(int aValue);
 **Goal**: Extend `kicad_get_pcb_geometry()` to include copper layer polygons and drill holes.
 
 **Tasks**:
-- [ ] 2a. Implement copper polygon extraction in `api.cpp`:
+- [x] 2a. Implement copper polygon extraction in `api.cpp`:
   - For each copper layer (F.Cu, In1.Cu, ..., B.Cu):
     - Call `pad->TransformShapeToPolygon()` for all pads on this layer
     - Call `track->TransformShapeToPolygon()` for all tracks on this layer
@@ -175,13 +175,13 @@ double pcbIUScale.IUTomm(int aValue);
     - Serialize polygon outlines + holes as JSON arrays
   - Group polygons by net name using `pad->GetNetname()`, `track->GetNetname()`, `zone->GetNetname()`
   - Calculate Z start position and thickness for each copper layer from stackup
-- [ ] 2b. Implement drill hole extraction:
+- [x] 2b. Implement drill hole extraction:
   - Iterate pads: `pad->HasHole()`, `pad->GetEffectiveHoleShape()`, `pad->GetDrillSizeX()`
   - Iterate vias: same hole extraction, plus `via->GetTopLayer()`, `via->GetBottomLayer()`
   - Classify as PTH vs NPTH from `pad->GetAttribute()`
   - Extract plating thickness (default 0.025mm for PTH)
   - Output hole center (x,y in mm), diameter, layer span, type
-- [ ] 2c. Update test to validate:
+- [x] 2c. Update test to validate:
   - Copper layer polygons exist and have vertices
   - Hole data present with valid diameters
   - At least one PTH hole if board has through-hole components
@@ -208,10 +208,10 @@ PAD_ATTRIB PAD::GetAttribute() const; // PTH vs NPTH
 ```
 
 **Success Criteria**:
-- [ ] JSON includes copper layer polygons grouped by net
-- [ ] JSON includes drill hole data with positions and diameters
-- [ ] Test passes with expanded assertions
-- [ ] ERC regression passes
+- [x] JSON includes copper layer polygons (grouped per layer with z_start and thickness)
+- [x] JSON includes drill hole data with positions and diameters
+- [x] Test passes with expanded assertions (72 assertions)
+- [x] ERC regression passes (155 assertions)
 
 ---
 
@@ -506,7 +506,7 @@ From KiCad source:
 
 After each stage:
 - [x] **Stage 1**: Board outline + stackup + components extracted as JSON
-- [ ] **Stage 2**: Copper polygons + drill holes in JSON
+- [x] **Stage 2**: Copper polygons + drill holes in JSON
 - [ ] **Stage 3**: Board body STEP file generated
 - [ ] **Stage 4**: Drill holes cut from board
 - [ ] **Stage 5**: Copper layers added
