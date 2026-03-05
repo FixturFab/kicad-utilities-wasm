@@ -388,6 +388,136 @@ export class StepBuilder {
   }
 
   /**
+   * Compute the placement transform for a component model.
+   * Replicates KiCad's getModelLocation() from step_pcb_model.cpp.
+   *
+   * Transform order (accumulated via Multiply = right-multiply in local frame):
+   *   1. Position: translate (x, -y, 0)  — KiCad Y-axis is inverted
+   *   2. Board rotation: rotate around Z by footprint angle
+   *   3. Bottom flip: rotate 180° around X if bottom side
+   *   4. Model offset: translate (offset.x, offset.y, offset.z + surface_z)
+   *   5. Model orientation: rotate -Z, then -Y, then -X
+   *
+   * @param {object} component - Component data from geometry JSON
+   * @param {object} model - Model data from component
+   * @returns {gp_Trsf} The accumulated placement transform
+   */
+  computePlacementTransform(component, model) {
+    const oc = this.oc;
+    const boardThickness = this.geometry.board.thickness_mm || 1.6;
+
+    // Board surface Z positions:
+    // Board is extruded from z=0 downward to z=-thickness
+    // F.Cu copper is at z=0, thickness 0.035mm (extends upward)
+    // B.Cu copper is at z=-thickness, thickness 0.035mm (extends downward)
+    const copperThickness = 0.035;
+    const BOARD_OFFSET = 0.05; // from KiCad step_pcb_model.cpp
+
+    // Top surface = top of F.Cu copper = copperThickness
+    const topSurface = copperThickness;
+    // Bottom surface = bottom of B.Cu copper = -(thickness + copperThickness)
+    const bottomSurface = -(boardThickness + copperThickness);
+
+    const isBottom = component.side === 'bottom';
+    const footprintAngleRad = (component.rotation_deg || 0) * Math.PI / 180;
+
+    // Model offset (in mm)
+    const offset = {
+      x: model.offset?.x_mm || 0,
+      y: model.offset?.y_mm || 0,
+      z: (model.offset?.z_mm || 0) + BOARD_OFFSET
+    };
+
+    // Model orientation (convert degrees to radians)
+    const orient = {
+      x: (model.rotation?.x_deg || 0) * Math.PI / 180,
+      y: (model.rotation?.y_deg || 0) * Math.PI / 180,
+      z: (model.rotation?.z_deg || 0) * Math.PI / 180
+    };
+
+    // Origin point and axes for rotations
+    const origin = new oc.gp_Pnt_3(0, 0, 0);
+    const zDir = new oc.gp_Dir_4(0, 0, 1);
+    const yDir = new oc.gp_Dir_4(0, 1, 0);
+    const xDir = new oc.gp_Dir_4(1, 0, 0);
+    const zAx = new oc.gp_Ax1_2(origin, zDir);
+    const yAx = new oc.gp_Ax1_2(origin, yDir);
+    const xAx = new oc.gp_Ax1_2(origin, xDir);
+
+    // Step 1: Position translation (Y inverted)
+    const lPos = new oc.gp_Trsf_1();
+    lPos.SetTranslation_1(new oc.gp_Vec_4(
+      component.position?.x_mm || 0,
+      -(component.position?.y_mm || 0),
+      0
+    ));
+
+    // Step 2+3: Board rotation and bottom flip
+    const lRot = new oc.gp_Trsf_1();
+    if (isBottom) {
+      offset.z -= bottomSurface;
+      lRot.SetRotation_1(zAx, footprintAngleRad);
+      lPos.Multiply(lRot);
+      const lFlip = new oc.gp_Trsf_1();
+      lFlip.SetRotation_1(xAx, Math.PI);
+      lPos.Multiply(lFlip);
+    } else {
+      offset.z += topSurface;
+      lRot.SetRotation_1(zAx, footprintAngleRad);
+      lPos.Multiply(lRot);
+    }
+
+    // Step 4: Model offset
+    const lOff = new oc.gp_Trsf_1();
+    lOff.SetTranslation_1(new oc.gp_Vec_4(offset.x, offset.y, offset.z));
+    lPos.Multiply(lOff);
+
+    // Step 5: Model orientation (applied as -Z, -Y, -X rotations)
+    const lOrientZ = new oc.gp_Trsf_1();
+    lOrientZ.SetRotation_1(zAx, -orient.z);
+    lPos.Multiply(lOrientZ);
+
+    const lOrientY = new oc.gp_Trsf_1();
+    lOrientY.SetRotation_1(yAx, -orient.y);
+    lPos.Multiply(lOrientY);
+
+    const lOrientX = new oc.gp_Trsf_1();
+    lOrientX.SetRotation_1(xAx, -orient.x);
+    lPos.Multiply(lOrientX);
+
+    return lPos;
+  }
+
+  /**
+   * Apply a placement transform to a shape, returning a new transformed shape.
+   * Handles model scale as well.
+   */
+  transformShape(shape, transform, model) {
+    const oc = this.oc;
+
+    // Apply scale if not (1,1,1)
+    const sx = model.scale?.x ?? 1;
+    const sy = model.scale?.y ?? 1;
+    const sz = model.scale?.z ?? 1;
+
+    let shapeToTransform = shape;
+    if (sx !== 1 || sy !== 1 || sz !== 1) {
+      // Uniform scale only (OCCT gp_Trsf supports uniform scale)
+      // Use the average for uniform approximation
+      const uniformScale = (sx + sy + sz) / 3;
+      if (Math.abs(uniformScale - 1) > 1e-6) {
+        const scaleTrsf = new oc.gp_Trsf_1();
+        scaleTrsf.SetScale(new oc.gp_Pnt_3(0, 0, 0), uniformScale);
+        const scaleXform = new oc.BRepBuilderAPI_Transform_2(shape, scaleTrsf, true);
+        shapeToTransform = scaleXform.Shape();
+      }
+    }
+
+    const transformer = new oc.BRepBuilderAPI_Transform_2(shapeToTransform, transform, true);
+    return transformer.Shape();
+  }
+
+  /**
    * Build the board body and export as STEP.
    * Options: includeDrillHoles, includeCopperLayers, includeComponents, modelResolver.
    */
@@ -433,8 +563,10 @@ export class StepBuilder {
     for (const solid of copperSolids) {
       builder.Add(compound, solid);
     }
-    for (const { shape } of componentModels) {
-      builder.Add(compound, shape);
+    for (const { shape, component, model } of componentModels) {
+      const transform = this.computePlacementTransform(component, model);
+      const placedShape = this.transformShape(shape, transform, model);
+      builder.Add(compound, placedShape);
     }
 
     return this.writeStep(compound);

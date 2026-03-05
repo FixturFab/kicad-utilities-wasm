@@ -370,7 +370,7 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
     }
     ```
   - Handle missing models gracefully (skip, don't fail)
-- [ ] 6b. Implement placement transform replicating `getModelLocation()` from step_pcb_model.cpp:
+- [x] 6b. Implement placement transform replicating `getModelLocation()` from step_pcb_model.cpp:
   - Translation to footprint position on board (x, y, z_surface)
   - Rotation by footprint angle
   - Flip for bottom-side components (180deg X rotation)
@@ -379,7 +379,7 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
   - Apply model scale
   - KiCad Y-axis inversion: negate Y in position
   - Z-position: top surface for top-side, bottom surface for bottom-side
-- [ ] 6c. Add placed models to compound:
+- [x] 6c. Add placed models to compound:
   - Transform each model shape with `BRepBuilderAPI_Transform`
   - Add to the compound alongside board body and copper
 
@@ -393,10 +393,10 @@ const fuse = new oc.BRepAlgoAPI_Fuse_3(shape1, shape2, new oc.Message_ProgressRa
 7. Model rotation X: around X axis
 
 **Success Criteria**:
-- [ ] Component STEP models load and place correctly
-- [ ] Bottom-side components are flipped
-- [ ] Missing models are skipped without error
-- [ ] Test passes with at least one component model
+- [x] Component STEP models load and place correctly
+- [x] Bottom-side components are flipped
+- [x] Missing models are skipped without error
+- [x] Test passes with at least one component model
 
 ---
 
@@ -510,5 +510,5 @@ After each stage:
 - [x] **Stage 3**: Board body STEP file generated
 - [x] **Stage 4**: Drill holes cut from board
 - [x] **Stage 5**: Copper layers added
-- [ ] **Stage 6**: Component models placed
+- [x] **Stage 6**: Component models placed
 - [ ] **Stage 7**: Public API complete, end-to-end test passes

@@ -464,6 +464,235 @@ assert(stepNoResolver instanceof Uint8Array, 'Should produce STEP without modelR
 assert(stepNoResolver.length > 1000, 'Board STEP should still be >1KB');
 console.log('  No resolver handled gracefully');
 
+// =============================================
+// Stage 6b: Placement Transform Test
+// =============================================
+console.log();
+console.log('--- Stage 6b: Placement Transform Test ---');
+
+// 6b-1: Top-side component at specific position with rotation
+console.log('[19/25] Testing top-side component placement...');
+const topCompGeom = {
+  format_version: 1, units: 'mm',
+  board: {
+    outline: { polygons: [{ outline: [[0,0],[80,0],[80,50],[0,50]], holes: [] }] },
+    thickness_mm: 1.6
+  },
+  stackup: [], copper_layers: [], holes: [],
+  components: [{
+    reference: 'U1',
+    footprint: 'Package_SO:SOIC-8',
+    position: { x_mm: 40, y_mm: 25 },
+    rotation_deg: 45,
+    side: 'top',
+    models: [{
+      filename: 'SOIC-8.step',
+      offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+      rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+      scale: { x: 1, y: 1, z: 1 }
+    }]
+  }]
+};
+
+const topResolver = { resolve: async (fn) => fn === 'SOIC-8.step' ? componentStepData : null };
+const stepTopComp = await exportFn(topCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepTopComp instanceof Uint8Array, 'Top component STEP should be Uint8Array');
+const topCompText = new TextDecoder().decode(stepTopComp);
+assert(topCompText.includes('CLOSED_SHELL'), 'Top component STEP should have CLOSED_SHELL');
+// Should be larger than board-only (component adds geometry)
+const stepTopBoardOnly = await exportFn(topCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false, includeComponents: false
+});
+assert(stepTopComp.length > stepTopBoardOnly.length,
+  `Top component STEP (${stepTopComp.length}) should be larger than board (${stepTopBoardOnly.length})`);
+console.log(`  Top component: ${stepTopComp.length} bytes (board only: ${stepTopBoardOnly.length})`);
+
+// 6b-2: Bottom-side component (should be flipped)
+console.log('[20/25] Testing bottom-side component placement...');
+const bottomCompGeom = {
+  ...topCompGeom,
+  components: [{
+    reference: 'U2',
+    footprint: 'Package_SO:SOIC-8',
+    position: { x_mm: 40, y_mm: 25 },
+    rotation_deg: 0,
+    side: 'bottom',
+    models: [{
+      filename: 'SOIC-8.step',
+      offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+      rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+      scale: { x: 1, y: 1, z: 1 }
+    }]
+  }]
+};
+const stepBottomComp = await exportFn(bottomCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepBottomComp instanceof Uint8Array, 'Bottom component STEP should be Uint8Array');
+assert(stepBottomComp.length > stepTopBoardOnly.length,
+  `Bottom component STEP (${stepBottomComp.length}) should be larger than board (${stepTopBoardOnly.length})`);
+console.log(`  Bottom component: ${stepBottomComp.length} bytes`);
+
+// 6b-3: Component with model offset and orientation
+console.log('[21/25] Testing component with offset and orientation...');
+const offsetCompGeom = {
+  ...topCompGeom,
+  components: [{
+    reference: 'U3',
+    footprint: 'Custom',
+    position: { x_mm: 20, y_mm: 10 },
+    rotation_deg: 90,
+    side: 'top',
+    models: [{
+      filename: 'SOIC-8.step',
+      offset: { x_mm: 1.5, y_mm: -0.5, z_mm: 0.2 },
+      rotation: { x_deg: 0, y_deg: 0, z_deg: 90 },
+      scale: { x: 1, y: 1, z: 1 }
+    }]
+  }]
+};
+const stepOffsetComp = await exportFn(offsetCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepOffsetComp instanceof Uint8Array, 'Offset component STEP should be Uint8Array');
+assert(stepOffsetComp.length > stepTopBoardOnly.length,
+  `Offset component STEP (${stepOffsetComp.length}) should be larger than board (${stepTopBoardOnly.length})`);
+console.log(`  Offset component: ${stepOffsetComp.length} bytes`);
+
+// 6b-4: Multiple components (top + bottom)
+console.log('[22/25] Testing multiple components (top + bottom)...');
+const multiCompGeom = {
+  ...topCompGeom,
+  components: [
+    {
+      reference: 'U1', footprint: 'SOIC-8',
+      position: { x_mm: 20, y_mm: 15 }, rotation_deg: 0, side: 'top',
+      models: [{ filename: 'SOIC-8.step',
+        offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+        rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+        scale: { x: 1, y: 1, z: 1 } }]
+    },
+    {
+      reference: 'U2', footprint: 'SOIC-8',
+      position: { x_mm: 60, y_mm: 35 }, rotation_deg: 180, side: 'bottom',
+      models: [{ filename: 'SOIC-8.step',
+        offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+        rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+        scale: { x: 1, y: 1, z: 1 } }]
+    }
+  ]
+};
+const stepMultiComp = await exportFn(multiCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepMultiComp instanceof Uint8Array, 'Multi-component STEP should be Uint8Array');
+const multiCompText = new TextDecoder().decode(stepMultiComp);
+const multiShellCount = (multiCompText.match(/CLOSED_SHELL/g) || []).length;
+const singleShellCount = (topCompText.match(/CLOSED_SHELL/g) || []).length;
+assert(multiShellCount > singleShellCount,
+  `Multi-comp shells (${multiShellCount}) should exceed single-comp (${singleShellCount})`);
+console.log(`  Multi-component: ${stepMultiComp.length} bytes, ${multiShellCount} CLOSED_SHELLs`);
+
+// 6b-5: Component with non-unit scale
+console.log('[23/25] Testing component with scale...');
+const scaledCompGeom = {
+  ...topCompGeom,
+  components: [{
+    reference: 'U4', footprint: 'Scaled',
+    position: { x_mm: 30, y_mm: 20 }, rotation_deg: 0, side: 'top',
+    models: [{
+      filename: 'SOIC-8.step',
+      offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+      rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+      scale: { x: 2, y: 2, z: 2 }
+    }]
+  }]
+};
+const stepScaled = await exportFn(scaledCompGeom, {
+  includeDrillHoles: false, includeCopperLayers: false,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepScaled instanceof Uint8Array, 'Scaled component STEP should be Uint8Array');
+assert(stepScaled.length > stepTopBoardOnly.length,
+  `Scaled component STEP (${stepScaled.length}) should be larger than board (${stepTopBoardOnly.length})`);
+console.log(`  Scaled component: ${stepScaled.length} bytes`);
+
+// 6b-6: Verify computePlacementTransform directly via StepBuilder
+console.log('[24/25] Verifying computePlacementTransform directly...');
+const placementBuilder = new StepBuilder(oc, topCompGeom);
+
+// Top-side: z should be at top surface (copperThickness=0.035 + BOARD_OFFSET=0.05)
+const topTransform = placementBuilder.computePlacementTransform(
+  { position: { x_mm: 10, y_mm: 20 }, rotation_deg: 0, side: 'top' },
+  { offset: { x_mm: 0, y_mm: 0, z_mm: 0 }, rotation: { x_deg: 0, y_deg: 0, z_deg: 0 }, scale: { x: 1, y: 1, z: 1 } }
+);
+const topTP = topTransform.TranslationPart();
+// Position should be (10, -20, z_top) where z_top = 0.035 + 0.05 = 0.085
+assert(Math.abs(topTP.X() - 10) < 0.001, `Top X should be 10, got ${topTP.X()}`);
+assert(Math.abs(topTP.Y() - (-20)) < 0.001, `Top Y should be -20, got ${topTP.Y()}`);
+assert(topTP.Z() > 0, `Top Z should be positive (above board), got ${topTP.Z()}`);
+console.log(`  Top transform: (${topTP.X().toFixed(3)}, ${topTP.Y().toFixed(3)}, ${topTP.Z().toFixed(3)})`);
+
+// Bottom-side: z should be negative (below board)
+const botTransform = placementBuilder.computePlacementTransform(
+  { position: { x_mm: 10, y_mm: 20 }, rotation_deg: 0, side: 'bottom' },
+  { offset: { x_mm: 0, y_mm: 0, z_mm: 0 }, rotation: { x_deg: 0, y_deg: 0, z_deg: 0 }, scale: { x: 1, y: 1, z: 1 } }
+);
+const botTP = botTransform.TranslationPart();
+assert(Math.abs(botTP.X() - 10) < 0.001, `Bottom X should be 10, got ${botTP.X()}`);
+assert(Math.abs(botTP.Y() - (-20)) < 0.001, `Bottom Y should be -20, got ${botTP.Y()}`);
+assert(botTP.Z() < 0, `Bottom Z should be negative (below board), got ${botTP.Z()}`);
+console.log(`  Bottom transform: (${botTP.X().toFixed(3)}, ${botTP.Y().toFixed(3)}, ${botTP.Z().toFixed(3)})`);
+
+// 6b-7: Full pipeline: board + copper + holes + components
+console.log('[25/25] Testing full pipeline with all features...');
+const fullGeom = {
+  format_version: 1, units: 'mm',
+  board: {
+    outline: { polygons: [{ outline: [[0,0],[50,0],[50,30],[0,30]], holes: [] }] },
+    thickness_mm: 1.6
+  },
+  stackup: [],
+  copper_layers: [{
+    layer_id: 'F.Cu', z_start_mm: 0.0, thickness_mm: 0.035,
+    polygons: [{ net: 'GND', outline: [[5,5],[45,5],[45,25],[5,25]], holes: [] }]
+  }],
+  holes: [
+    { type: 'pth', x_mm: 25, y_mm: 15, diameter_mm: 1.0, top_layer: 'F.Cu', bottom_layer: 'B.Cu', plating_thickness_mm: 0.025 },
+  ],
+  components: [{
+    reference: 'U1', footprint: 'SOIC-8',
+    position: { x_mm: 25, y_mm: 15 }, rotation_deg: 45, side: 'top',
+    models: [{ filename: 'SOIC-8.step',
+      offset: { x_mm: 0, y_mm: 0, z_mm: 0 },
+      rotation: { x_deg: 0, y_deg: 0, z_deg: 0 },
+      scale: { x: 1, y: 1, z: 1 } }]
+  }]
+};
+const stepFull = await exportFn(fullGeom, {
+  includeDrillHoles: true, includeCopperLayers: true,
+  includeComponents: true, modelResolver: topResolver
+});
+assert(stepFull instanceof Uint8Array, 'Full pipeline STEP should be Uint8Array');
+assert(stepFull.length > 5000, `Full pipeline STEP should be >5KB, got ${stepFull.length}`);
+const fullText = new TextDecoder().decode(stepFull);
+assert(fullText.includes('CLOSED_SHELL'), 'Full STEP should have CLOSED_SHELL');
+assert(fullText.includes('CYLINDRICAL_SURFACE'), 'Full STEP should have CYLINDRICAL_SURFACE (drill holes)');
+const fullShellCount = (fullText.match(/CLOSED_SHELL/g) || []).length;
+assert(fullShellCount >= 3, `Full STEP should have >=3 shells (board+copper+component), got ${fullShellCount}`);
+console.log(`  Full pipeline: ${stepFull.length} bytes, ${fullShellCount} CLOSED_SHELLs`);
+
+if (process.env.WRITE_STEP) {
+  writeFileSync(resolve(__dirname, 'output-full.step'), stepFull);
+  console.log('  Written to:', resolve(__dirname, 'output-full.step'));
+}
+
 console.log();
 console.log(`=== RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} (${passed} passed, ${failed} failed) ===`);
 

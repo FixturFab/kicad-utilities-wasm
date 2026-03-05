@@ -83,3 +83,19 @@
 - Geometry regression: 72/72 pass
 - ERC regression: 155/155 pass
 - Stage 6a COMPLETE
+
+### Stage 6b - TypeScript: Placement Transform
+- Added computePlacementTransform() replicating KiCad's getModelLocation() from step_pcb_model.cpp
+- Transform order: position(x,-y,0) → board rotation(Z) → bottom flip(X,PI) → offset(+surface_z) → orient(-Z,-Y,-X)
+- opencascade.js API: gp_Trsf_1(), SetTranslation_1(vec), SetRotation_1(ax1, angle), Multiply(trsf)
+- BRepBuilderAPI_Transform_2(shape, trsf, true) applies transform to shape
+- Added transformShape() with uniform scale support via SetScale()
+- Updated buildAndExport() compound assembly to apply placement transforms to loaded models
+- SetScale(gp_Pnt, scale) works for uniform scale of component models
+- 6b tests: top/bottom placement, offset+orientation, multiple components, scale, direct transform verification, full pipeline
+- Test passes: 73 assertions (51 Stage 3-6a + 22 Stage 6b)
+- Geometry regression: 72/72 pass
+- ERC regression: 155/155 pass
+- Verified transform positions: top Z=0.085 (copper 0.035 + BOARD_OFFSET 0.05), bottom Z=-1.685
+- Stage 6b COMPLETE
+- Stage 6 COMPLETE (all substages: 6a reader + 6b placement + 6c compound assembly)
