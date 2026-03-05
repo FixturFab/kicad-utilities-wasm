@@ -13,9 +13,29 @@
 - 2a: Added `include(thirdparty/occt-emscripten.cmake)` to CMakeLists.txt EMSCRIPTEN section
 - 2a: Fixed OSD_signal.cxx FPE errors: global `__linux__` define clashed with OCCT's platform detection; added `-U__linux__` to OCCT toolkit compile options
 - 2a: TKernel compiled (4.4MB .a), TKMath compiled (8.4MB .a) — both clean, only deprecation warnings
+- 2c: TKG2d compiled (1.5MB), TKG3d compiled (4.0MB), TKGeomBase compiled (15MB), TKBRep compiled (4.0MB) — all clean, only minor warnings
+- 2d: TKGeomAlgo compiled (18MB), TKTopAlgo compiled (9.5MB), TKShHealing compiled (8.9MB) — all clean
+- 2e: TKBool compiled (15MB), TKBO compiled (8.9MB), TKPrim compiled (1.4MB), TKFillet compiled (8.2MB) — all clean
+- 2e+: TKOffset, TKFeat, TKHLR, TKMesh, TKXMesh also compiled clean
+- 2f: Boolean cut test (box - cylinder) PASSES under Node.js. Required -sSTACK_SIZE=8388608 (8MB stack). Without assertions, the real error (stack overflow) was masked as a misleading getWasmTableEntry() error. Test created at test/occt_boolean_test.cpp, built as occt_boolean_test.mjs
 
 ### Stage 3: Compile OCCT STEP I/O and Application Framework Modules
-- (not started)
+- 3a: TKXSBase (11MB), TKSTEPBase (15MB), TKSTEPAttr (9.5MB), TKSTEP209 (3.2MB), TKSTEP (12MB) — all compiled clean
+- 3b: TKCDF (1.2MB), TKLCAF (3.8MB), TKCAF (2.1MB), TKTObj (844K) — all compiled clean
+- 3c: TKXCAF (3.2MB), TKXDESTEP (1.7MB) — compiled clean
+- 3d: All remaining modules compiled clean:
+  - TKBinL (1.3MB), TKBin (456K), TKBinTObj (212K), TKBinXCAF (496K)
+  - TKIGES (18MB), TKXDEIGES (196K)
+  - TKService (4.1MB), TKV3d (14MB)
+  - TKSTL (244K), TKVRML (2.2MB), TKRWMesh (1.4MB)
+  - Previously compiled: TKOffset, TKFeat, TKHLR, TKMesh, TKXMesh
+  - Added TKVCAF toolkit (provides TPrsStd_DriverTable, needed by TKXCAF)
+  - Fixed occt-emscripten.cmake to also collect .c and .cpp files (was missing Resource_ConvertUnicode.c and delabella.cpp)
+- 3e: STEP write validation test PASSES under Node.js
+  - Test creates XDE document with colored box, writes STEP via STEPCAFControl_Writer
+  - Output: 15,875 bytes, 361 STEP entities, ISO-10303-21 header verified
+  - PRODUCT entities and COLOUR_RGB data confirmed in output
+  - Test file: test/occt_step_write_test.cpp, built as occt_step_write_test.mjs
 
 ### Stage 4: Integrate KiCad's STEP Exporter Source Files
 - (not started)

@@ -111,6 +111,78 @@ if(EMSCRIPTEN)
     # ── OCCT 7.6.3 static libraries (for STEP export) ───────────────────────
     include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/occt-emscripten.cmake)
 
+    # ── OCCT boolean test (Stage 2f validation) ──────────────────────────
+    add_executable(occt_boolean_test
+        test/occt_boolean_test.cpp
+    )
+    target_include_directories(occt_boolean_test PRIVATE ${OCCT_INCLUDE_DIRS})
+    target_compile_definitions(occt_boolean_test PRIVATE ${OCCT_COMPILE_DEFS})
+    target_compile_options(occt_boolean_test PRIVATE -U__linux__ -O2 -fno-lto)
+    target_link_libraries(occt_boolean_test PRIVATE
+        TKBool TKBO TKPrim TKFillet
+        TKShHealing TKTopAlgo TKGeomAlgo
+        TKBRep TKGeomBase TKG3d TKG2d
+        TKMath TKernel
+    )
+    set_target_properties(occt_boolean_test PROPERTIES
+        SUFFIX ".mjs"
+        LINK_FLAGS "\
+            -sEXPORT_ES6=1 \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME=createOcctBooleanTest \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -sINITIAL_MEMORY=67108864 \
+            -sENVIRONMENT=node \
+            -sNO_DISABLE_EXCEPTION_CATCHING \
+            -fexceptions \
+            -sALLOW_TABLE_GROWTH \
+            -sASSERTIONS=2 \
+            -fno-lto \
+            -sSTACK_SIZE=8388608 \
+            -sEXPORTED_FUNCTIONS=[\"_main\"] \
+            -sEXPORTED_RUNTIME_METHODS=[\"callMain\"] \
+        "
+    )
+
+    # ── OCCT STEP write test (Stage 3e validation) ──────────────────────
+    add_executable(occt_step_write_test
+        test/occt_step_write_test.cpp
+    )
+    target_include_directories(occt_step_write_test PRIVATE ${OCCT_INCLUDE_DIRS})
+    target_compile_definitions(occt_step_write_test PRIVATE ${OCCT_COMPILE_DEFS})
+    target_compile_options(occt_step_write_test PRIVATE -U__linux__ -O2 -fno-lto)
+    target_link_libraries(occt_step_write_test PRIVATE
+        TKXDESTEP TKXCAF TKBinXCAF TKBin TKBinL TKBinTObj
+        TKSTEP TKSTEPAttr TKSTEPBase TKSTEP209 TKXSBase
+        TKCAF TKLCAF TKCDF TKTObj
+        TKVCAF TKService TKV3d
+        TKMesh TKXMesh TKHLR
+        TKBool TKBO TKPrim TKFillet TKOffset TKFeat
+        TKShHealing TKTopAlgo TKGeomAlgo
+        TKBRep TKGeomBase TKG3d TKG2d
+        TKMath TKernel
+    )
+    set_target_properties(occt_step_write_test PROPERTIES
+        SUFFIX ".mjs"
+        LINK_FLAGS "\
+            -sEXPORT_ES6=1 \
+            -sMODULARIZE=1 \
+            -sEXPORT_NAME=createOcctStepWriteTest \
+            -sALLOW_MEMORY_GROWTH=1 \
+            -sINITIAL_MEMORY=67108864 \
+            -sENVIRONMENT=node \
+            -sNO_DISABLE_EXCEPTION_CATCHING \
+            -fexceptions \
+            -sALLOW_TABLE_GROWTH \
+            -sASSERTIONS=2 \
+            -fno-lto \
+            -sSTACK_SIZE=8388608 \
+            -sFILESYSTEM=1 \
+            -sEXPORTED_FUNCTIONS=[\"_main\"] \
+            -sEXPORTED_RUNTIME_METHODS=[\"callMain\",\"FS\"] \
+        "
+    )
+
     # ── Thirdparty libraries ────────────────────────────────────────────────
 
     # Clipper2

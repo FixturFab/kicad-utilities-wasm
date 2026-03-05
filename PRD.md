@@ -87,10 +87,10 @@ KiCad WASM (existing: DRC + ERC + geometry)
 - [x] 2b: Create `kicad-drc-wasm/stubs/occt/` directory with platform stubs for Emscripten:
   - NOT NEEDED: OCCT 7.6.3 has native `__EMSCRIPTEN__` support in OSD, Standard, etc.
   - Only fix required: `-U__linux__` in OCCT compile options to prevent conflict with global KiCad define
-- [ ] 2c: Compile TKG2d, TKG3d, TKGeomBase, TKBRep (modeling data modules)
-- [ ] 2d: Compile TKGeomAlgo, TKTopAlgo, TKShHealing (modeling algorithm modules)
-- [ ] 2e: Compile TKBool, TKBO, TKPrim, TKFillet (boolean operations + primitives)
-- [ ] 2f: Validate with a test that creates a cylinder and performs a boolean cut:
+- [x] 2c: Compile TKG2d, TKG3d, TKGeomBase, TKBRep (modeling data modules)
+- [x] 2d: Compile TKGeomAlgo, TKTopAlgo, TKShHealing (modeling algorithm modules)
+- [x] 2e: Compile TKBool, TKBO, TKPrim, TKFillet (boolean operations + primitives)
+- [x] 2f: Validate with a test that creates a cylinder and performs a boolean cut:
   ```cpp
   #include <BRepPrimAPI_MakeCylinder.hxx>
   #include <BRepPrimAPI_MakeBox.hxx>
@@ -106,11 +106,11 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Compile the STEP reader/writer and XDE assembly framework modules.
 
-- [ ] 3a: Compile TKXSBase, TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209 (STEP I/O core)
-- [ ] 3b: Compile TKCDF, TKLCAF, TKCAF, TKTObj (application framework)
-- [ ] 3c: Compile TKXCAF, TKXDESTEP (XDE STEP, assembly support with colors/materials)
-- [ ] 3d: Compile remaining needed modules: TKIGES, TKXDEIGES, TKBin, TKBinL, TKBinTObj, TKBinXCAF, TKService, TKV3d, TKRWMesh, TKMesh, TKSTL, TKVRML, TKXMesh, TKOffset, TKFeat, TKHLR
-- [ ] 3e: Validate with a test that writes a STEP file:
+- [x] 3a: Compile TKXSBase, TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209 (STEP I/O core)
+- [x] 3b: Compile TKCDF, TKLCAF, TKCAF, TKTObj (application framework)
+- [x] 3c: Compile TKXCAF, TKXDESTEP (XDE STEP, assembly support with colors/materials)
+- [x] 3d: Compile remaining needed modules: TKIGES, TKXDEIGES, TKBin, TKBinL, TKBinTObj, TKBinXCAF, TKService, TKV3d, TKRWMesh, TKMesh, TKSTL, TKVRML, TKXMesh, TKOffset, TKFeat, TKHLR
+- [x] 3e: Validate with a test that writes a STEP file:
   ```cpp
   #include <STEPCAFControl_Writer.hxx>
   #include <BRepPrimAPI_MakeBox.hxx>

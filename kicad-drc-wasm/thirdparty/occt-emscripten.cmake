@@ -38,8 +38,8 @@ function(occt_collect_toolkit_sources TOOLKIT_NAME OUT_SOURCES)
         if("${PKG}" STREQUAL "")
             continue()
         endif()
-        # Collect all .cxx files from this package
-        file(GLOB PKG_SOURCES "${OCCT_SRC}/${PKG}/*.cxx")
+        # Collect all .cxx, .c, and .cpp files from this package
+        file(GLOB PKG_SOURCES "${OCCT_SRC}/${PKG}/*.cxx" "${OCCT_SRC}/${PKG}/*.c" "${OCCT_SRC}/${PKG}/*.cpp")
         list(APPEND ALL_SOURCES ${PKG_SOURCES})
     endforeach()
     set(${OUT_SOURCES} ${ALL_SOURCES} PARENT_SCOPE)
@@ -143,6 +143,9 @@ occt_add_toolkit(TKBinL)
 occt_add_toolkit(TKBin)
 occt_add_toolkit(TKBinTObj)
 
+# Visualization CAF (needed by TKXCAF)
+occt_add_toolkit(TKVCAF)
+
 # Data Exchange
 occt_add_toolkit(TKXSBase)
 occt_add_toolkit(TKSTEPBase)
@@ -163,7 +166,7 @@ set(OCCT_LIBRARIES
     TKernel TKMath
     TKG2d TKG3d TKGeomBase TKBRep
     TKGeomAlgo TKTopAlgo TKShHealing TKBool TKBO TKPrim TKFillet TKOffset TKFeat TKHLR TKMesh TKXMesh
-    TKService TKV3d
+    TKService TKV3d TKVCAF
     TKCDF TKLCAF TKCAF TKTObj TKBinL TKBin TKBinTObj
     TKXSBase TKSTEPBase TKSTEPAttr TKSTEP209 TKSTEP
     TKIGES TKXCAF TKXDESTEP TKXDEIGES TKBinXCAF
