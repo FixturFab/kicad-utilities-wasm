@@ -4,6 +4,10 @@
 - Downloaded OCCT 7.6.3 source from GitHub (Open-Cascade-SAS/OCCT V7_6_3 tag)
 - Extracted to kicad-drc-wasm/thirdparty/occt-7.6.3/ (verified v7.6.3 in Standard_Version.hxx)
 - Removed tarball to save space
+- 1b: Module list verified against adm/MODULES and src/*/PACKAGES — all toolkits exist in source
+- 1c: Created thirdparty/occt-emscripten.cmake with occt_add_toolkit() function that reads PACKAGES files and collects .cxx sources
+- OCCT 7.6.3 already has native __EMSCRIPTEN__ support in OSD, Standard, etc. — fewer stubs needed than expected
+- 1d: Tested OCCT header compilation with emcc — both basic (gp_Pnt, BRepPrimAPI) and STEP (STEPCAFControl_Writer, XCAFApp_Application, XCAFDoc_*) headers compile cleanly with em++ -std=c++17 -fexceptions
 
 ### Stage 2: Compile OCCT Core Modules to WASM Static Libraries
 - (not started)

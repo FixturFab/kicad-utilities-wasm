@@ -54,20 +54,20 @@ KiCad WASM (existing: DRC + ERC + geometry)
 **Goal**: Get OCCT 7.6.3 source tree, configure a minimal Emscripten build with only the modules needed for STEP export.
 
 - [x] 1a: Download OCCT 7.6.3 source release to `kicad-drc-wasm/thirdparty/occt-7.6.3/`
-- [ ] 1b: Identify the minimal set of OCCT modules needed. Based on KiCad's `FindOCC.cmake` and the exporter's `#include` directives, we need these OCCT toolkits:
+- [x] 1b: Identify the minimal set of OCCT modules needed. Based on KiCad's `FindOCC.cmake` and the exporter's `#include` directives, we need these OCCT toolkits:
   - **Foundation**: TKernel, TKMath
   - **Modeling Data**: TKG2d, TKG3d, TKGeomBase, TKBRep
   - **Modeling Algorithms**: TKGeomAlgo, TKTopAlgo, TKShHealing, TKBool, TKBO, TKPrim, TKFillet, TKOffset, TKFeat, TKHLR
   - **Data Exchange**: TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209, TKXSBase, TKIGES, TKXDESTEP, TKXDEIGES, TKRWMesh, TKMesh, TKSTL, TKVRML
   - **Application Framework**: TKCAF, TKCDF, TKLCAF, TKXCAF, TKBinXCAF, TKBin, TKBinL, TKBinTObj, TKTObj, TKService, TKV3d, TKXMesh
   - Exclude visualization (TKOpenGl, TKMeshVS), XML persistence (TKXml*), Draw harness
-- [ ] 1c: Create `kicad-drc-wasm/thirdparty/occt-emscripten.cmake` that:
+- [x] 1c: Create `kicad-drc-wasm/thirdparty/occt-emscripten.cmake` that:
   - Sets OCCT source root
   - Defines `BUILD_MODULE_*` variables to enable/disable modules
   - Sets Emscripten-specific compile flags (`-O3 -flto -fexceptions -pthread`)
   - Disables platform-specific code (X11, OpenGL, Tcl/Tk)
   - Stubs out `OSD_Path`, `OSD_Process` platform calls (reference: opencascade.js patches)
-- [ ] 1d: Test that OCCT headers are parseable by Emscripten compiler with a minimal test:
+- [x] 1d: Test that OCCT headers are parseable by Emscripten compiler with a minimal test:
   ```cpp
   #include <Standard_Version.hxx>
   #include <gp_Pnt.hxx>
