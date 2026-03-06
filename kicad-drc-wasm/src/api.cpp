@@ -613,10 +613,165 @@ const char* kicad_get_pcb_geometry( void )
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ERC API Implementation
+// STEP Export API Implementation
 // ═══════════════════════════════════════════════════════════════════════════
 
 } // end DRC extern "C" block
+
+#include <exporters/step/exporter_step.h>
+
+static std::string g_step_result;
+
+extern "C" {
+
+const char* kicad_export_step( const char* options_json )
+{
+    if( !g_board )
+        return nullptr;
+
+    ensure_pgm_initialized();
+    g_step_result.clear();
+
+    EXPORTER_STEP_PARAMS params;
+    params.m_Format = EXPORTER_STEP_PARAMS::FORMAT::STEP;
+    params.m_ExportBoardBody = true;
+    params.m_ExportComponents = false;
+    params.m_BoardOnly = true;
+    params.m_OptimizeStep = true;
+    params.m_Overwrite = true;
+
+    // Parse options from JSON if provided
+    if( options_json && options_json[0] != '\0' )
+    {
+        try
+        {
+            nlohmann::json opts = nlohmann::json::parse( options_json );
+
+            if( opts.contains( "board_only" ) )
+                params.m_BoardOnly = opts["board_only"].get<bool>();
+
+            if( opts.contains( "export_board_body" ) )
+                params.m_ExportBoardBody = opts["export_board_body"].get<bool>();
+
+            if( opts.contains( "export_components" ) )
+                params.m_ExportComponents = opts["export_components"].get<bool>();
+
+            if( opts.contains( "export_tracks" ) )
+                params.m_ExportTracksVias = opts["export_tracks"].get<bool>();
+
+            if( opts.contains( "export_pads" ) )
+                params.m_ExportPads = opts["export_pads"].get<bool>();
+
+            if( opts.contains( "export_zones" ) )
+                params.m_ExportZones = opts["export_zones"].get<bool>();
+
+            if( opts.contains( "export_silkscreen" ) )
+                params.m_ExportSilkscreen = opts["export_silkscreen"].get<bool>();
+
+            if( opts.contains( "export_soldermask" ) )
+                params.m_ExportSoldermask = opts["export_soldermask"].get<bool>();
+
+            if( opts.contains( "export_inner_copper" ) )
+                params.m_ExportInnerCopper = opts["export_inner_copper"].get<bool>();
+
+            if( opts.contains( "fuse_shapes" ) )
+                params.m_FuseShapes = opts["fuse_shapes"].get<bool>();
+
+            if( opts.contains( "fill_all_vias" ) )
+                params.m_FillAllVias = opts["fill_all_vias"].get<bool>();
+
+            if( opts.contains( "cut_vias_in_body" ) )
+                params.m_CutViasInBody = opts["cut_vias_in_body"].get<bool>();
+
+            if( opts.contains( "optimize" ) )
+                params.m_OptimizeStep = opts["optimize"].get<bool>();
+
+            if( opts.contains( "include_unspecified" ) )
+                params.m_IncludeUnspecified = opts["include_unspecified"].get<bool>();
+
+            if( opts.contains( "include_dnp" ) )
+                params.m_IncludeDNP = opts["include_dnp"].get<bool>();
+
+            if( opts.contains( "use_grid_origin" ) )
+                params.m_UseGridOrigin = opts["use_grid_origin"].get<bool>();
+
+            if( opts.contains( "use_drill_origin" ) )
+                params.m_UseDrillOrigin = opts["use_drill_origin"].get<bool>();
+
+            if( opts.contains( "net_filter" ) )
+                params.m_NetFilter = wxString( opts["net_filter"].get<std::string>() );
+
+            if( opts.contains( "component_filter" ) )
+                params.m_ComponentFilter = wxString( opts["component_filter"].get<std::string>() );
+        }
+        catch( ... )
+        {
+            fprintf( stderr, "STEP export: failed to parse options JSON\n" );
+        }
+    }
+
+    // Write to virtual FS
+    wxString outputDir = wxS( "/tmp/kicad_wasm_step/" );
+    wxFileName::Mkdir( outputDir, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL );
+    wxString outputPath = outputDir + wxS( "out.step" );
+    params.m_OutputFile = outputPath;
+
+    fprintf( stderr, "[STEP] output path: %s\n", (const char*)outputPath.c_str() );
+
+    // Use CLI reporter for stderr output
+    CLI_REPORTER& reporter = CLI_REPORTER::GetInstance();
+
+    try
+    {
+        fprintf( stderr, "[STEP] Creating EXPORTER_STEP...\n" );
+        EXPORTER_STEP exporter( g_board.get(), params, &reporter );
+        exporter.m_outputFile = outputPath;
+
+        fprintf( stderr, "[STEP] Calling Export()...\n" );
+        if( !exporter.Export() )
+        {
+            fprintf( stderr, "STEP export failed\n" );
+            return nullptr;
+        }
+
+        fprintf( stderr, "[STEP] Export() returned true, reading output...\n" );
+
+        // Read the STEP file back from virtual FS
+        std::ifstream ifs( (const char*)outputPath.c_str() );
+
+        if( !ifs )
+        {
+            fprintf( stderr, "STEP export: failed to read output file at '%s'\n",
+                     (const char*)outputPath.c_str() );
+            return nullptr;
+        }
+
+        std::ostringstream oss;
+        oss << ifs.rdbuf();
+        g_step_result = oss.str();
+
+        // Clean up temp file
+        wxRemoveFile( outputPath );
+
+        return g_step_result.c_str();
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "STEP export error: %s\n", e.what() );
+        return nullptr;
+    }
+    catch( ... )
+    {
+        fprintf( stderr, "STEP export: unknown error\n" );
+        return nullptr;
+    }
+}
+
+} // end STEP extern "C"
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ERC API Implementation
+// ═══════════════════════════════════════════════════════════════════════════
 
 // ERC global state
 static std::unique_ptr<SCHEMATIC>          g_schematic;

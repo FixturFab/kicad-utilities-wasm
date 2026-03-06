@@ -674,6 +674,8 @@ if(EMSCRIPTEN)
         ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
         # Dependencies needed by the STEP exporter
         ${KICAD_SRC}/common/filename_resolver.cpp
+        # Stubs for EXPORTER_STEP_PARAMS methods + U3D/PDF exclusion
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/step_export_stubs.cpp
         # NOTE: streamwrapper.cpp is Windows+GCC only (#error guard), not needed
     )
     target_include_directories(step_exporter_wasm PUBLIC
@@ -831,7 +833,7 @@ if(EMSCRIPTEN)
             -sEXPORT_ES6=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createKicadDRC \
-            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_diag_ping\",\"_malloc\",\"_free\"] \
+            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_kicad_export_step\",\"_diag_ping\",\"_malloc\",\"_free\"] \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\",\"stringToUTF8\",\"lengthBytesUTF8\"] \
             -O3 \
             -flto \

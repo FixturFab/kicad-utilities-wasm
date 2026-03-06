@@ -173,7 +173,7 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Expose the STEP export as a C API function in the WASM module, reusing the already-loaded BOARD.
 
-- [ ] 5a: Add the export function to `api.cpp`:
+- [x] 5a: Add the export function to `api.cpp`:
   ```cpp
   #include <exporters/step/exporter_step.h>
 
@@ -205,17 +205,17 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
   } // extern "C"
   ```
-- [ ] 5b: Add `_kicad_export_step` to EXPORTED_FUNCTIONS in CMakeLists.txt link flags
-- [ ] 5c: Add options parsing: accept JSON with fields for export parameters (format, origin, components, tracks, silkscreen, soldermask, etc.) mapping to EXPORTER_STEP_PARAMS fields
-- [ ] 5d: Handle the STEP file output:
+- [x] 5b: Add `_kicad_export_step` to EXPORTED_FUNCTIONS in CMakeLists.txt link flags
+- [x] 5c: Add options parsing: accept JSON with fields for export parameters (format, origin, components, tracks, silkscreen, soldermask, etc.) mapping to EXPORTER_STEP_PARAMS fields
+- [x] 5d: Handle the STEP file output:
   - Option A: Return the STEP file content as a string (simple, works for STEP text format)
   - Option B: Write to Emscripten virtual FS and return the path (supports binary formats like GLB)
   - Implement both: string return for STEP, FS path for binary formats
-- [ ] 5e: Handle 3D model resolution. The exporter calls `FILENAME_RESOLVER` to find `.step`/`.wrl` model files. For WASM:
+- [x] 5e: Handle 3D model resolution. The exporter calls `FILENAME_RESOLVER` to find `.step`/`.wrl` model files. For WASM:
   - Accept a model map via the options JSON: `{ "models": { "path/to/model.step": <FS path> } }`
   - Write models to virtual FS before export
   - Or: export with `m_BoardOnly = true` initially (no component models), add model support later
-- [ ] 5f: Add TypeScript type declarations to `types/kicad-wasm.d.ts`
+- [x] 5f: Add TypeScript type declarations to `types/kicad-wasm.d.ts`
 
 **Verification**: `_kicad_export_step` is callable from Node.js. Returns a STEP file string for a loaded PCB.
 

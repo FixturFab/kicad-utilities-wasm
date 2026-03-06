@@ -5,8 +5,15 @@
 #include <cstdlib>
 #include <unistd.h>
 inline wxString wxGetHomeDir() { return wxString("/"); }
-inline wxString wxGetCwd() { return wxString("/"); }
-inline bool wxSetWorkingDirectory(const wxString&) { return true; }
+inline wxString wxGetCwd() {
+    char buf[4096];
+    if (getcwd(buf, sizeof(buf)))
+        return wxString(buf);
+    return wxString("/");
+}
+inline bool wxSetWorkingDirectory(const wxString& dir) {
+    return chdir(dir.c_str()) == 0;
+}
 inline long wxGetFreeMemory() { return 256 * 1024 * 1024; }
 inline unsigned long wxGetProcessId() { return 1; }
 

@@ -64,7 +64,14 @@
 - 4f: OCCT libraries already linked as part of 4e (via ${OCCT_LIBRARIES} variable)
 
 ### Stage 5: Add _kicad_export_step() API Function
-- (not started)
+- 5a-d: kicad_export_step() already implemented in api.cpp from Stage 4 work (JSON options parsing, STEP file I/O, error handling)
+- 5b: _kicad_export_step already in EXPORTED_FUNCTIONS list
+- Fixed link errors: guarded WriteU3D/WritePDF in step_pcb_model.cpp with #ifdef __EMSCRIPTEN__ (U3D/PDF export not needed in WASM)
+- Added step_export_stubs.cpp with EXPORTER_STEP_PARAMS::GetDefaultExportExtension() and GetFormatName() (avoids pulling in job_export_pcb_3d.cpp dependencies)
+- Fixed wxGetCwd/wxSetWorkingDirectory stubs (were no-ops) — WriteSTEP changes CWD then writes temp file, so actual chdir/getcwd needed in WASM
+- 5a-5d VERIFIED: test/test-native-step.mjs passes all 10 assertions — loads PCB, exports STEP (18,388 bytes, 455 entities), ISO-10303-21 header confirmed
+- 5e: Board-only export works (m_BoardOnly=true default); component 3D model support deferred to Stage 8
+- 5f: TypeScript types added to types/kicad-wasm.d.ts
 
 ### Stage 6: Parity Testing
 - (not started)

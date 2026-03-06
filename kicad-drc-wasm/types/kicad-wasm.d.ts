@@ -81,6 +81,17 @@ export interface KicadWasmModule extends EmscriptenModule {
      * @returns Pointer to JSON string (use UTF8ToString), or 0 on error.
      */
     _kicad_get_pcb_geometry(): number;
+
+    // --- Native STEP Export API ---
+
+    /**
+     * Export the loaded PCB to STEP format using KiCad's native exporter (OCCT 7.6.3).
+     * Must call _kicad_load_pcb() first.
+     * Use via ccall: Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson])
+     * @param optionsJsonPtr Pointer to JSON options string (see NativeStepExportOptions).
+     * @returns Pointer to STEP file content string, or 0 on error.
+     */
+    _kicad_export_step(optionsJsonPtr: number): number;
 }
 
 export interface EmscriptenModule {
@@ -310,3 +321,47 @@ export function exportPcbToStep(
     geometryJson: PcbGeometry,
     options?: StepExportOptions
 ): Promise<Uint8Array>;
+
+// --- Native STEP Export Options (for _kicad_export_step) ---
+
+/** Options JSON for the native _kicad_export_step() API. */
+export interface NativeStepExportOptions {
+    /** Export board outline only (no components). Default: true. */
+    board_only?: boolean;
+    /** Export the board body (FR4 substrate). Default: true. */
+    export_board_body?: boolean;
+    /** Export component 3D models. Default: false. */
+    export_components?: boolean;
+    /** Export copper tracks and vias. Default: false. */
+    export_tracks?: boolean;
+    /** Export pads. Default: false. */
+    export_pads?: boolean;
+    /** Export filled zones. Default: false. */
+    export_zones?: boolean;
+    /** Export silkscreen layers. Default: false. */
+    export_silkscreen?: boolean;
+    /** Export soldermask layers. Default: false. */
+    export_soldermask?: boolean;
+    /** Export inner copper layers. Default: false. */
+    export_inner_copper?: boolean;
+    /** Fuse overlapping shapes for cleaner geometry. Default: false. */
+    fuse_shapes?: boolean;
+    /** Fill all vias as solid cylinders. Default: false. */
+    fill_all_vias?: boolean;
+    /** Cut via holes in board body. Default: false. */
+    cut_vias_in_body?: boolean;
+    /** Optimize STEP output (reduce file size). Default: true. */
+    optimize?: boolean;
+    /** Include unspecified components. Default: true. */
+    include_unspecified?: boolean;
+    /** Include DNP (Do Not Place) components. Default: true. */
+    include_dnp?: boolean;
+    /** Use grid origin as STEP origin. Default: false. */
+    use_grid_origin?: boolean;
+    /** Use drill/place origin as STEP origin. Default: false. */
+    use_drill_origin?: boolean;
+    /** Filter by net name (regex). */
+    net_filter?: string;
+    /** Filter by component reference (regex). */
+    component_filter?: string;
+}
