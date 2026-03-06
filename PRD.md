@@ -126,8 +126,8 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Compile KiCad's native STEP exporter files and link them with the OCCT WASM libraries.
 
-- [ ] 4a: Add OCCT include directory to `KICAD_INCLUDE_DIRS` in CMakeLists.txt (WASM section)
-- [ ] 4b: Add KiCad STEP exporter source files to the WASM build:
+- [x] 4a: Add OCCT include directory to `KICAD_INCLUDE_DIRS` in CMakeLists.txt (WASM section)
+- [x] 4b: Add KiCad STEP exporter source files to the WASM build:
   ```cmake
   set(STEP_EXPORTER_SOURCES
       ${KICAD_SRC}/pcbnew/exporters/step/exporter_step.cpp
@@ -136,18 +136,19 @@ KiCad WASM (existing: DRC + ERC + geometry)
       ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
   )
   ```
-- [ ] 4c: Handle additional KiCad dependencies the exporter needs that may not be compiled yet:
+- [x] 4c: Handle additional KiCad dependencies the exporter needs that may not be compiled yet:
   - `filename_resolver.cpp` — 3D model file path resolution
   - `convert_basic_shapes_to_polygon.cpp` — geometry conversion
-  - `streamwrapper.cpp` — OCCT stream wrapper (at `kicad-src/common/streamwrapper.cpp`)
+  - `streamwrapper.cpp` — OCCT stream wrapper (Windows+GCC only, excluded with note)
   - `exporters/u3d/writer.cpp` — U3D writer (may need stub if only STEP is needed)
   - `pcb_painter.cpp` — color extraction (may need stub)
   - Any other missing symbols found during linking
-- [ ] 4d: Add stubs for features we don't need in WASM:
-  - `footprint_library_adapter` — GUI library browser (stub or exclude)
-  - `pcb_barcode` — barcode generation (may need minimal stub)
-  - U3D, PDF, PLY format writers — stub with "not supported in WASM" returns
-  - `plotters/plotters_pslike` — plotting (stub)
+- [x] 4d: Add stubs for features we don't need in WASM:
+  - wxStringOutputStream, wxStdOutputStream, wxZlibOutputStream stubs
+  - wxInputStream::Read(wxOutputStream&), stream Close() methods
+  - wxString::ToAscii(), wxString::erase(iterator) overloads
+  - wxInvalidOffset, wxFFileInputStream::Reset/SeekI, wxZipInputStream::CanRead
+  - wxRenameFile 3-arg overload
 - [ ] 4e: Compile and fix all remaining link errors. The exporter uses these KiCad classes that should already be compiled in pcbcommon_wasm: BOARD, FOOTPRINT, PAD, PCB_TRACK, ZONE, SHAPE_POLY_SET, BOARD_STACKUP, PCB_SHAPE, PCB_TEXTBOX, PCB_TABLE.
 - [ ] 4f: Link OCCT static libraries into the final WASM target:
   ```cmake

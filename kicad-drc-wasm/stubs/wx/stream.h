@@ -5,6 +5,7 @@
 #include <cstring>
 
 typedef long long wxFileOffset;
+#define wxInvalidOffset ((wxFileOffset)-1)
 
 class wxStreamBase
 {
@@ -14,11 +15,14 @@ public:
     virtual size_t GetSize() const { return 0; }
 };
 
+class wxOutputStream;  // forward declaration for Read(wxOutputStream&)
+
 class wxInputStream : public wxStreamBase
 {
 public:
     virtual ~wxInputStream() = default;
     virtual wxInputStream& Read(void* buffer, size_t size) { return *this; }
+    inline wxInputStream& Read(wxOutputStream& stream_out);
     virtual size_t LastRead() const { return 0; }
     virtual bool Eof() const { return true; }
     virtual char GetC() { return 0; }
@@ -36,6 +40,18 @@ public:
     virtual size_t OnSysWrite(const void*, size_t) { return 0; }
     void PutC(char c) { Write(&c, 1); }
 };
+
+// Out-of-line definition of Read(wxOutputStream&) — needs wxOutputStream to be complete
+inline wxInputStream& wxInputStream::Read(wxOutputStream& stream_out) {
+    char buf[4096];
+    while(!Eof()) {
+        Read(buf, sizeof(buf));
+        size_t n = LastRead();
+        if(n > 0) stream_out.Write(buf, n);
+        else break;
+    }
+    return *this;
+}
 
 class wxMemoryOutputStream;
 
@@ -110,6 +126,7 @@ inline wxMemoryInputStream::wxMemoryInputStream(const wxMemoryOutputStream& stre
 class wxFileInputStream : public wxInputStream
 {
 public:
+    using wxInputStream::Read;
     wxFileInputStream(const wxString& filename) {
         m_fp = fopen(filename.c_str(), "rb");
     }
@@ -133,12 +150,13 @@ public:
     wxFileOutputStream(const wxString& filename) {
         m_fp = fopen(filename.c_str(), "wb");
     }
-    ~wxFileOutputStream() { if(m_fp) fclose(m_fp); }
+    ~wxFileOutputStream() { Close(); }
     bool IsOk() const override { return m_fp != nullptr; }
     wxOutputStream& Write(const void* buffer, size_t size) override {
         if(m_fp) fwrite(buffer, 1, size, m_fp);
         return *this;
     }
+    bool Close() { if(m_fp) { fclose(m_fp); m_fp = nullptr; } return true; }
 private:
     FILE* m_fp = nullptr;
 };
@@ -147,6 +165,7 @@ private:
 class wxFFileInputStream : public wxInputStream
 {
 public:
+    using wxInputStream::Read;
     wxFFileInputStream(const wxString& filename) {
         m_fp = fopen(filename.c_str(), "rb");
     }
@@ -156,6 +175,11 @@ public:
     wxFFileInputStream(FILE* fp) : m_fp(fp) {}
     ~wxFFileInputStream() { if(m_fp) fclose(m_fp); }
     bool IsOk() const override { return m_fp != nullptr; }
+    void Reset() { if(m_fp) clearerr(m_fp); }
+    wxFileOffset SeekI(wxFileOffset pos, int mode = 0) {
+        if(m_fp) fseek(m_fp, (long)pos, mode);
+        return m_fp ? ftell(m_fp) : wxInvalidOffset;
+    }
     wxInputStream& Read(void* buffer, size_t size) override {
         if(m_fp) m_lastRead = fread(buffer, 1, size, m_fp);
         else m_lastRead = 0;
@@ -280,4 +304,36 @@ public:
     wxStdInputStream(wxInputStream& stream) : std::istream(&m_buf), m_buf(stream) {}
 private:
     wxStdInputStreamBuffer m_buf;
+};
+
+// wxZlib constants
+#define wxZLIB_GZIP 2
+#define wxZLIB_NO_HEADER 0
+#define wxZLIB_ZLIB 1
+
+// wxStdOutputStream - C++ std::ostream wrapper around wxOutputStream
+class wxStdOutputStreamBuffer : public std::streambuf {
+public:
+    wxStdOutputStreamBuffer(wxOutputStream& stream) : m_stream(stream) {}
+protected:
+    int_type overflow(int_type c) override {
+        if(c != traits_type::eof()) {
+            char ch = traits_type::to_char_type(c);
+            m_stream.Write(&ch, 1);
+        }
+        return c;
+    }
+    std::streamsize xsputn(const char* s, std::streamsize n) override {
+        m_stream.Write(s, (size_t)n);
+        return n;
+    }
+private:
+    wxOutputStream& m_stream;
+};
+
+class wxStdOutputStream : public std::ostream {
+public:
+    wxStdOutputStream(wxOutputStream& stream) : std::ostream(&m_buf), m_buf(stream) {}
+private:
+    wxStdOutputStreamBuffer m_buf;
 };

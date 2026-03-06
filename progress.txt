@@ -38,7 +38,23 @@
   - Test file: test/occt_step_write_test.cpp, built as occt_step_write_test.mjs
 
 ### Stage 4: Integrate KiCad's STEP Exporter Source Files
-- (not started)
+- 4a: Added OCCT_INCLUDE_DIRS to KICAD_INCLUDE_DIRS via list(APPEND) after occt-emscripten.cmake include
+- 4b: step_exporter_wasm target already existed in CMakeLists.txt with 4 exporter files + filename_resolver
+  - Removed streamwrapper.cpp (Windows+GCC only, has #error guard)
+  - Added -sUSE_ZLIB=1 compile option for gzip-hpp dependency
+  - Added wxString::erase(iterator) overloads for filename_resolver.cpp
+  - Added wxString::ToAscii() stub
+  - Added wxStringOutputStream stub to sstream.h
+  - Added wxStdOutputStream/wxStdOutputStreamBuffer stubs to stream.h
+  - Added wxInputStream::Read(wxOutputStream&) with proper forward decl + out-of-line def
+  - Added wxFileOutputStream::Close(), wxFileInputStream using-decl
+  - Added wxZLIB_GZIP/wxZLIB_ZLIB/wxZLIB_NO_HEADER constants
+  - Updated wxZlibOutputStream stub with 3-arg ctor and Close()
+  - Added wxInvalidOffset constant
+  - Added wxFFileInputStream::Reset() and SeekI() methods
+  - Added wxZipInputStream::CanRead() stub
+  - Added wxRenameFile 3-arg overload (with overwrite bool)
+  - step_exporter_wasm compiles clean (only deprecation/template warnings)
 
 ### Stage 5: Add _kicad_export_step() API Function
 - (not started)

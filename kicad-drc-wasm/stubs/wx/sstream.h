@@ -21,3 +21,20 @@ private:
     size_t m_pos;
     size_t m_lastRead = 0;
 };
+
+class wxStringOutputStream : public wxOutputStream
+{
+public:
+    wxStringOutputStream(wxString* str = nullptr) : m_str(str ? str : &m_internal) {}
+    wxOutputStream& Write(const void* buffer, size_t size) override {
+        m_str->append(std::string((const char*)buffer, size));
+        m_lastWrite = size;
+        return *this;
+    }
+    size_t LastWrite() const override { return m_lastWrite; }
+    const wxString& GetString() const { return *m_str; }
+private:
+    wxString* m_str;
+    wxString m_internal;
+    size_t m_lastWrite = 0;
+};

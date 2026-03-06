@@ -111,6 +111,9 @@ if(EMSCRIPTEN)
     # ── OCCT 7.6.3 static libraries (for STEP export) ───────────────────────
     include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/occt-emscripten.cmake)
 
+    # Add OCCT include dirs to KiCad includes (needed by STEP exporter sources)
+    list(APPEND KICAD_INCLUDE_DIRS ${OCCT_INCLUDE_DIRS})
+
     # ── OCCT boolean test (Stage 2f validation) ──────────────────────────
     add_executable(occt_boolean_test
         test/occt_boolean_test.cpp
@@ -662,6 +665,27 @@ if(EMSCRIPTEN)
         "SHELL:-include ${KICAD_SRC}/include/richio.h"
     )
     target_link_libraries(eeschema_wasm PUBLIC kicommon_wasm gal_wasm)
+
+    # ── STEP Exporter (KiCad native STEP export via OCCT) ──────────────────
+    add_library(step_exporter_wasm STATIC
+        ${KICAD_SRC}/pcbnew/exporters/step/exporter_step.cpp
+        ${KICAD_SRC}/pcbnew/exporters/step/step_pcb_model.cpp
+        ${KICAD_SRC}/pcbnew/exporters/step/kicad3d_info.cpp
+        ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
+        # Dependencies needed by the STEP exporter
+        ${KICAD_SRC}/common/filename_resolver.cpp
+        # NOTE: streamwrapper.cpp is Windows+GCC only (#error guard), not needed
+    )
+    target_include_directories(step_exporter_wasm PUBLIC
+        ${KICAD_INCLUDE_DIRS}
+        ${KICAD_SRC}/thirdparty/gzip-hpp
+    )
+    target_compile_options(step_exporter_wasm PRIVATE
+        ${KICAD_FORCE_INCLUDE_FLAGS}
+        -U__linux__
+        -sUSE_ZLIB=1
+    )
+    target_link_libraries(step_exporter_wasm PUBLIC pcbcommon_wasm ${OCCT_LIBRARIES})
 
     # ── DRC Test Providers (self-registering, need --whole-archive) ─────────
     # ALL providers EXCEPT library_parity (crashes in static init, not needed in WASM anyway)

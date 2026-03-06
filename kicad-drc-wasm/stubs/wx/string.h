@@ -160,6 +160,7 @@ public:
     const char* char_str() const { return m_str.c_str(); }
     wxCharBuffer utf8_str() const { return wxCharBuffer(m_str.c_str()); }
     wxCharBuffer mb_str() const { return wxCharBuffer(m_str.c_str()); }
+    const char* ToAscii() const { return m_str.c_str(); }
     wxCharBuffer mb_str(const wxMBConv&) const { return wxCharBuffer(m_str.c_str()); }
     const char* wc_str() const { return m_str.c_str(); }
     wxCharBuffer fn_str() const { return wxCharBuffer(m_str.c_str()); }
@@ -370,6 +371,8 @@ public:
     wxString& Remove(size_t pos, size_t len) { m_str.erase(pos, len); return *this; }
     wxString& RemoveLast(size_t n = 1) { if(n <= m_str.size()) m_str.erase(m_str.size() - n); return *this; }
     wxString& erase(size_t pos = 0, size_t len = npos) { m_str.erase(pos, len); return *this; }
+    iterator erase(iterator it) { return m_str.erase(it); }
+    iterator erase(iterator first, iterator last) { return m_str.erase(first, last); }
     size_t Replace(char from, const wxString& to, bool replaceAll = true) {
         return Replace(wxString(1, from), to, replaceAll);
     }

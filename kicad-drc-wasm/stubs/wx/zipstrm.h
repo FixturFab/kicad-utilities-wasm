@@ -11,8 +11,10 @@ public:
 };
 class wxZipInputStream : public wxInputStream {
 public:
+    using wxInputStream::Read;
     wxZipInputStream(wxInputStream&) {}
     wxZipEntry* GetNextEntry() { return nullptr; }
+    bool CanRead() const { return !Eof(); }
 };
 class wxZipOutputStream : public wxOutputStream {
 public:

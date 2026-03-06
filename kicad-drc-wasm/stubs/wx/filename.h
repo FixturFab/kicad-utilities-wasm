@@ -371,6 +371,7 @@ inline bool wxMkdir(const wxString& path, int perm = 0777) {
     return mkdir(path.c_str(), perm) == 0;
 }
 inline bool wxRmdir(const wxString& path) { return rmdir(path.c_str()) == 0; }
-inline bool wxRenameFile(const wxString& from, const wxString& to) {
+inline bool wxRenameFile(const wxString& from, const wxString& to, bool overwrite = false) {
+    if(overwrite) { remove(to.c_str()); }
     return rename(from.c_str(), to.c_str()) == 0;
 }
