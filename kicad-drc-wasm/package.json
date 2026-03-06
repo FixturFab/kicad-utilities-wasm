@@ -31,7 +31,8 @@
     "test:step-e2e": "node test/test-step-e2e.mjs",
     "test:step-parity": "node test/test-step-parity.mjs",
     "test:step-native": "node test/test-native-step.mjs",
-    "test:step-native-parity": "node test/test-step-native-parity.mjs"
+    "test:step-native-parity": "node test/test-step-native-parity.mjs",
+    "test:3d-model": "node test/test-3d-model.mjs"
   },
   "license": "GPL-3.0",
   "engines": {

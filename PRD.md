@@ -298,7 +298,7 @@ KiCad WASM (existing: DRC + ERC + geometry)
   };
   ```
 - [x] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
-- [ ] 8c: Test with a PCB that has component models
+- [x] 8c: Test with a PCB that has component models
 - [ ] 8d: Add model preloading to the browser demo
 
 **Verification**: STEP export with components matches native kicad-cli output including 3D models.

@@ -112,3 +112,8 @@
 - 8b: Entity count diff (WASM=1024 vs native=1233) is KiCad version difference: v9.99 deduplicates PRODUCT defs for identical models, v8.0.9 creates separate ones; styling entities also deduplicated
 - 8b: Updated test to make native comparison informational (not hard assertion) since version diff is expected
 - 8b: All tests pass: 155 ERC + 10 STEP + 22 parity + 9 3D model = 196 assertions
+- 8c: Added test:3d-model script to package.json
+- 8c: VERIFIED: test-3d-model.mjs passes 9/9 — loads model-test.kicad_pcb with 2 SMD resistors, uploads R_0402_1005Metric.step model, exports with components
+- 8c: Board-only baseline: 202 entities; with models: 1024 entities (3 PRODUCT, 3 NAUO)
+- 8c: Native comparison: WASM=1024 entities vs native=1233 entities (version diff documented)
+- 8c: All tests pass: 155 ERC + 10 STEP + 22 parity + 9 3D model = 196 assertions
