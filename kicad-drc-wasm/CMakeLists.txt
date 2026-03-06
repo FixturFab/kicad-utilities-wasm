@@ -807,6 +807,7 @@ if(EMSCRIPTEN)
         -Wl,--whole-archive
         drc_test_providers
         -Wl,--no-whole-archive
+        step_exporter_wasm
         drc_support
         eeschema_wasm
         pcbcommon_wasm
@@ -820,6 +821,7 @@ if(EMSCRIPTEN)
         fmt_lib
         delaunator
         json_schema_validator
+        ${OCCT_LIBRARIES}
     )
 
     # Emscripten-specific link flags
@@ -843,6 +845,7 @@ if(EMSCRIPTEN)
             -sSTACK_OVERFLOW_CHECK=0 \
             -pthread \
             -sPTHREAD_POOL_SIZE=4 \
+            -sUSE_ZLIB=1 \
         "
     )
 

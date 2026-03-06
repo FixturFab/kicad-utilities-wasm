@@ -55,6 +55,13 @@
   - Added wxZipInputStream::CanRead() stub
   - Added wxRenameFile 3-arg overload (with overwrite bool)
   - step_exporter_wasm compiles clean (only deprecation/template warnings)
+- 4e: Linked step_exporter_wasm + all OCCT static libraries into kicad_drc
+  - Added step_exporter_wasm and ${OCCT_LIBRARIES} to target_link_libraries
+  - Added -sUSE_ZLIB=1 to kicad_drc link flags
+  - Linked with zero errors — no missing symbols
+  - Binary size: 9.6 MB (unchanged — LTO strips unused OCCT code since no API calls exporter yet)
+  - All 155 existing ERC tests pass
+- 4f: OCCT libraries already linked as part of 4e (via ${OCCT_LIBRARIES} variable)
 
 ### Stage 5: Add _kicad_export_step() API Function
 - (not started)

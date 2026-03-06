@@ -149,8 +149,8 @@ KiCad WASM (existing: DRC + ERC + geometry)
   - wxString::ToAscii(), wxString::erase(iterator) overloads
   - wxInvalidOffset, wxFFileInputStream::Reset/SeekI, wxZipInputStream::CanRead
   - wxRenameFile 3-arg overload
-- [ ] 4e: Compile and fix all remaining link errors. The exporter uses these KiCad classes that should already be compiled in pcbcommon_wasm: BOARD, FOOTPRINT, PAD, PCB_TRACK, ZONE, SHAPE_POLY_SET, BOARD_STACKUP, PCB_SHAPE, PCB_TEXTBOX, PCB_TABLE.
-- [ ] 4f: Link OCCT static libraries into the final WASM target:
+- [x] 4e: Compile and fix all remaining link errors. The exporter uses these KiCad classes that should already be compiled in pcbcommon_wasm: BOARD, FOOTPRINT, PAD, PCB_TRACK, ZONE, SHAPE_POLY_SET, BOARD_STACKUP, PCB_SHAPE, PCB_TEXTBOX, PCB_TABLE.
+- [x] 4f: Link OCCT static libraries into the final WASM target:
   ```cmake
   target_link_libraries(kicad_drc PRIVATE
       # ... existing libraries ...
