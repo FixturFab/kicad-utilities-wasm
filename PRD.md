@@ -426,7 +426,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
   - Verify same PCB passes/fails differently per manufacturer
 - [x] 6b: Test: configuration persistence — verify settings reset when loading a new PCB
 - [x] 6c: Test: invalid JSON handling — malformed JSON, unknown fields, out-of-range values
-- [ ] 6d: Test: partial configuration — only overriding some fields, rest keep PCB defaults
+- [x] 6d: Test: partial configuration — only overriding some fields, rest keep PCB defaults
 - [ ] 6e: Test: netclass priority — when a net has multiple netclass assignments, verify the correct precedence
 - [ ] 6f: Add `npm run test:drc-config` and `npm run test:erc-config` scripts to package.json
 

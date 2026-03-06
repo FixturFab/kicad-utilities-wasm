@@ -95,3 +95,13 @@
   - Error recovery: valid config works after previous JSON parse error
   - Unknown netclass fields silently ignored
   - Empty sub-objects (design_settings:{}, netclasses:{}, etc.) → no effect
+- Stage 6d: Created test/test-partial-config.mjs: 55 assertions covering 9 test scenarios
+  - Override only min_track_width → removes track_width, all other types keep PCB defaults
+  - Override only copper_edge_clearance → removes edge clearance, all others unchanged
+  - Override only severities (ignore track_width) → design_settings unchanged
+  - Combined partial design_settings + partial severities → both effects, rest unchanged
+  - Override only netclasses (strict Default clearance) → adds clearance violations, structural unchanged
+  - Partial ERC severity (ignore pin_not_connected) → all other ERC types retain baseline counts
+  - Override via_diameter but not via_drill → only via_diameter violations removed
+  - Strict override on one field → unrelated fields (edge clearance, via) unchanged
+  - Partial ERC ignore wire_dangling → pin_not_connected and others unchanged
