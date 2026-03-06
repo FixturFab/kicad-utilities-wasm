@@ -75,3 +75,10 @@
   - Structural violations (dangling track/via) consistent across all configs
   - Manufacturer config + severity overrides combined test
   - Manufacturer config + netclass override combined test
+- Stage 6b: Created test/test-config-persistence.mjs: 49 assertions covering 6 test scenarios
+  - DRC design settings reset after PCB reload (baseline=26, strict=31, after reload=26)
+  - DRC severity settings reset after PCB reload (ignored types removed then reappear)
+  - DRC netclass settings reset after PCB reload
+  - Loading a different PCB resets DRC config (switch between drc-config-test and netclass-test)
+  - ERC severity settings reset after schematic reload (baseline=9, ignored=4, after reload=9)
+  - Multiple configure calls then reload resets all accumulated overrides

@@ -424,7 +424,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
 - [x] 6a: Test: manufacturer rule sets — JLCPCB, OSH Park, PCBWay minimum specs
   - Create JSON configs matching each manufacturer's DRC rules
   - Verify same PCB passes/fails differently per manufacturer
-- [ ] 6b: Test: configuration persistence — verify settings reset when loading a new PCB
+- [x] 6b: Test: configuration persistence — verify settings reset when loading a new PCB
 - [ ] 6c: Test: invalid JSON handling — malformed JSON, unknown fields, out-of-range values
 - [ ] 6d: Test: partial configuration — only overriding some fields, rest keep PCB defaults
 - [ ] 6e: Test: netclass priority — when a net has multiple netclass assignments, verify the correct precedence
