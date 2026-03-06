@@ -82,3 +82,16 @@
   - Loading a different PCB resets DRC config (switch between drc-config-test and netclass-test)
   - ERC severity settings reset after schematic reload (baseline=9, ignored=4, after reload=9)
   - Multiple configure calls then reload resets all accumulated overrides
+- Stage 6c: Created test/test-invalid-json.mjs: 55 assertions covering 13 test scenarios
+  - Malformed JSON (DRC + ERC): plain text, invalid syntax, unclosed, empty string → returns -3
+  - Valid non-object JSON (array, number, string, null, bool) → returns 0 (no fields to process)
+  - Unknown top-level fields silently ignored, violations unchanged
+  - Unknown design_settings fields ignored, known fields still applied
+  - Unknown severity names and invalid severity values silently ignored
+  - Unknown ERC severity and pin_map entries silently ignored
+  - Type mismatches (string where number expected) → returns -3 (nlohmann type_error)
+  - Out-of-range values: negative, very large (999999mm), zero — all accepted
+  - No board/schematic loaded → returns -1
+  - Error recovery: valid config works after previous JSON parse error
+  - Unknown netclass fields silently ignored
+  - Empty sub-objects (design_settings:{}, netclasses:{}, etc.) → no effect
