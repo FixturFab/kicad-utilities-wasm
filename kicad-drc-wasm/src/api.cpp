@@ -619,10 +619,59 @@ const char* kicad_get_pcb_geometry( void )
 } // end DRC extern "C" block
 
 #include <exporters/step/exporter_step.h>
+#include <build_version.h>
+#include <env_vars.h>
 
 static std::string g_step_result;
+static const wxString g_model_virtual_dir = wxS( "/models/" );
 
 extern "C" {
+
+int kicad_set_3d_model_dir( const char* path )
+{
+    if( !path )
+        return -1;
+
+    // Set the versioned env var (e.g. KICAD9_3DMODEL_DIR)
+    wxString envVarName = ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) );
+    setenv( (const char*)envVarName.c_str(), path, 1 );
+
+    // Also set common aliases for cross-version compatibility
+    setenv( "KISYS3DMOD", path, 1 );
+
+    fprintf( stderr, "[STEP] Set %s = %s\n", (const char*)envVarName.c_str(), path );
+    return 0;
+}
+
+int kicad_upload_3d_model( const char* virtual_path, const void* data, size_t size )
+{
+    if( !virtual_path || !data || size == 0 )
+        return -1;
+
+    // Build full path: /models/<virtual_path>
+    wxString fullPath = g_model_virtual_dir + wxString( virtual_path );
+
+    // Ensure parent directory exists
+    wxFileName fn( fullPath );
+    wxFileName::Mkdir( fn.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL );
+
+    // Write binary data to virtual FS
+    std::ofstream ofs( (const char*)fullPath.c_str(), std::ios::binary );
+
+    if( !ofs )
+    {
+        fprintf( stderr, "[STEP] Failed to write model file: %s\n",
+                 (const char*)fullPath.c_str() );
+        return -2;
+    }
+
+    ofs.write( static_cast<const char*>( data ), size );
+    ofs.close();
+
+    fprintf( stderr, "[STEP] Uploaded model: %s (%zu bytes)\n",
+             (const char*)fullPath.c_str(), size );
+    return 0;
+}
 
 const char* kicad_export_step( const char* options_json )
 {
@@ -703,6 +752,20 @@ const char* kicad_export_step( const char* options_json )
 
             if( opts.contains( "component_filter" ) )
                 params.m_ComponentFilter = wxString( opts["component_filter"].get<std::string>() );
+
+            // Set 3D model search directory if provided
+            if( opts.contains( "model_dir" ) )
+            {
+                std::string modelDir = opts["model_dir"].get<std::string>();
+                kicad_set_3d_model_dir( modelDir.c_str() );
+            }
+
+            // Auto-configure: if export_components is true, board_only should be false
+            if( opts.contains( "export_components" ) && opts["export_components"].get<bool>() )
+            {
+                if( !opts.contains( "board_only" ) )
+                    params.m_BoardOnly = false;
+            }
         }
         catch( ... )
         {

@@ -92,6 +92,26 @@ export interface KicadWasmModule extends EmscriptenModule {
      * @returns Pointer to STEP file content string, or 0 on error.
      */
     _kicad_export_step(optionsJsonPtr: number): number;
+
+    // --- 3D Model Support API ---
+
+    /**
+     * Set the 3D model search directory. Sets KICAD*_3DMODEL_DIR env var.
+     * Call before _kicad_export_step() with export_components enabled.
+     * @param pathPtr Pointer to directory path string (e.g. "/models").
+     * @returns 0 on success, non-zero on error.
+     */
+    _kicad_set_3d_model_dir(pathPtr: number): number;
+
+    /**
+     * Upload a 3D model file to the Emscripten virtual filesystem.
+     * Files are written under /models/<virtual_path>.
+     * @param virtualPathPtr Pointer to relative path string (e.g. "Package_SO.3dshapes/SOIC-8.step").
+     * @param dataPtr Pointer to file binary data.
+     * @param size Size of the data in bytes.
+     * @returns 0 on success, non-zero on error.
+     */
+    _kicad_upload_3d_model(virtualPathPtr: number, dataPtr: number, size: number): number;
 }
 
 export interface EmscriptenModule {
@@ -364,4 +384,11 @@ export interface NativeStepExportOptions {
     net_filter?: string;
     /** Filter by component reference (regex). */
     component_filter?: string;
+    /**
+     * Base directory for 3D model files in the virtual filesystem.
+     * Sets KICAD*_3DMODEL_DIR env var. Default: "/models".
+     * Upload model files here before export using _kicad_upload_3d_model()
+     * or Module.FS.writeFile().
+     */
+    model_dir?: string;
 }

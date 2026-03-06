@@ -95,4 +95,12 @@
 - 7f: All tests pass — 155 ERC + 10 native STEP + 22 parity = 187 assertions
 
 ### Stage 8: Component 3D Model Support
-- (not started)
+- 8a: Added kicad_set_3d_model_dir() and kicad_upload_3d_model() C API functions to api.cpp
+- 8a: Added model_dir option to kicad_export_step() JSON options — sets KICAD*_3DMODEL_DIR env var
+- 8a: Auto-configure: when export_components=true, board_only defaults to false
+- 8a: Added _kicad_set_3d_model_dir and _kicad_upload_3d_model to EXPORTED_FUNCTIONS in CMakeLists.txt
+- 8a: Updated types/kicad-wasm.d.ts with new API functions and model_dir option
+- 8a: Updated src/step-export/index.mjs with upload3DModel(), set3DModelDir(), exportStepWithModels()
+- 8a: Build succeeds, binary relinked (35.8MB WASM)
+- 8a: All existing tests pass: 155 ERC + 10 STEP + 22 parity = 187 assertions
+- 8a: VERIFIED: new exports kicad_set_3d_model_dir and kicad_upload_3d_model present in JS glue

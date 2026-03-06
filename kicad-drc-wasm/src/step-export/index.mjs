@@ -32,6 +32,67 @@ export function exportStepNative(Module, options = {}) {
 }
 
 /**
+ * Upload a 3D model file to the WASM virtual filesystem for component export.
+ *
+ * @param {object} Module - The Emscripten WASM module
+ * @param {string} virtualPath - Relative path (e.g. "Package_SO.3dshapes/SOIC-8.step")
+ * @param {Uint8Array} data - Binary file data
+ * @returns {number} 0 on success, non-zero on error
+ */
+export function upload3DModel(Module, virtualPath, data) {
+  return Module.ccall(
+    'kicad_upload_3d_model',
+    'number',
+    ['string', 'array', 'number'],
+    [virtualPath, data, data.length]
+  );
+}
+
+/**
+ * Set the base directory for 3D model resolution.
+ *
+ * @param {object} Module - The Emscripten WASM module
+ * @param {string} [path="/models"] - Directory path in virtual FS
+ * @returns {number} 0 on success, non-zero on error
+ */
+export function set3DModelDir(Module, path = '/models') {
+  return Module.ccall(
+    'kicad_set_3d_model_dir',
+    'number',
+    ['string'],
+    [path]
+  );
+}
+
+/**
+ * Export PCB with component 3D models to STEP format.
+ * Convenience wrapper that uploads models, sets the model dir, and exports.
+ *
+ * @param {object} Module - The Emscripten WASM module
+ * @param {Map<string,Uint8Array>|Object} models - Map of virtual path -> binary data
+ * @param {object} [options] - Additional export options
+ * @returns {string|null} STEP file content as string, or null on error
+ */
+export function exportStepWithModels(Module, models, options = {}) {
+  // Upload all model files
+  const entries = models instanceof Map ? models.entries() : Object.entries(models);
+  for (const [path, data] of entries) {
+    const result = upload3DModel(Module, path, data);
+    if (result !== 0) {
+      console.error(`Failed to upload model: ${path}`);
+    }
+  }
+
+  // Export with components enabled
+  return exportStepNative(Module, {
+    board_only: false,
+    export_components: true,
+    model_dir: '/models',
+    ...options,
+  });
+}
+
+/**
  * @deprecated Use exportStepNative() instead for exact kicad-cli parity.
  *
  * Export PCB geometry to STEP format via opencascade.js (JS reimplementation).

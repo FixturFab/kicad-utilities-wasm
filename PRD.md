@@ -284,14 +284,17 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Enable component 3D model loading in the WASM STEP export.
 
-- [ ] 8a: Design the model resolution API for WASM:
+- [x] 8a: Design the model resolution API for WASM:
   ```javascript
-  // Before export, upload model files to virtual FS
-  Module.FS.writeFile('/models/Resistor_SMD.step', modelData);
+  // Upload model files to virtual FS
+  Module.ccall('kicad_upload_3d_model', 'number', ['string', 'array', 'number'],
+      ['Package_SO.3dshapes/SOIC-8.step', modelData, modelData.length]);
+  // Or use Module.FS.writeFile('/models/Package_SO.3dshapes/SOIC-8.step', modelData);
+
+  // Set model directory + export with components
   const options = {
-      format: "step",
       export_components: true,
-      model_search_paths: ["/models/"]
+      model_dir: "/models"   // sets KICAD*_3DMODEL_DIR env var
   };
   ```
 - [ ] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
