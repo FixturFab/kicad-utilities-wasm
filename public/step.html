@@ -295,6 +295,11 @@
         const exportOptions = document.getElementById('export-options');
         const includeComponentsCb = document.getElementById('include-components');
 
+        // ── Version banner ──
+        const DEMO_VERSION = '2026-03-06-native-step';
+        console.log(`%c[KiCad WASM Demo] v${DEMO_VERSION}`, 'color: #2d8a4e; font-weight: bold; font-size: 14px');
+        console.log(`[KiCad WASM Demo] Native STEP export via OCCT 7.6.3 + DRC/ERC config API`);
+
         // ── KiCad WASM loading ──
         if (typeof SharedArrayBuffer === 'undefined') {
             headerWarning.style.display = 'block';
@@ -306,12 +311,13 @@
 
         async function loadModule() {
             try {
-                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
+                const cacheBust = `?v=${DEMO_VERSION}`;
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs' + cacheBust);
                 Module = await createKicadDRC({
                     print: (text) => console.log('[WASM]', text),
                     printErr: () => {},
-                    locateFile: (path) => './' + path,
-                    mainScriptUrlOrBlob: './kicad_drc.mjs'
+                    locateFile: (path) => './' + path + cacheBust,
+                    mainScriptUrlOrBlob: './kicad_drc.mjs' + cacheBust
                 });
 
                 await new Promise(r => setTimeout(r, 1000));
