@@ -349,7 +349,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
 
 **Goal**: Clean TypeScript API with proper types for all configuration options.
 
-- [ ] 5a: Update `types/kicad-wasm.d.ts` with:
+- [x] 5a: Update `types/kicad-wasm.d.ts` with:
   ```typescript
   interface DrcDesignSettings {
     min_clearance_mm?: number;
@@ -401,7 +401,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
   function kicad_configure_drc(config: string): number;
   function kicad_configure_erc(config: string): number;
   ```
-- [ ] 5b: Create wrapper functions in a JS module (`src/config/index.mjs`):
+- [x] 5b: Create wrapper functions in a JS module (`src/config/index.mjs`):
   ```javascript
   export function configureDrc(module, config) {
     return module.ccall('kicad_configure_drc', 'number', ['string'], [JSON.stringify(config)]);
@@ -410,8 +410,8 @@ All fields are optional — omitted fields keep their values from the PCB file. 
     return module.ccall('kicad_configure_erc', 'number', ['string'], [JSON.stringify(config)]);
   }
   ```
-- [ ] 5c: Add `"./config"` export to `package.json`
-- [ ] 5d: Update README or API docs with configuration examples
+- [x] 5c: Add `"./config"` export to `package.json`
+- [x] 5d: Update README or API docs with configuration examples
 
 **Verification**: TypeScript types compile. JS wrapper functions work in tests.
 

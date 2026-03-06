@@ -22,6 +22,14 @@ export interface KicadWasmModule extends EmscriptenModule {
     _kicad_load_pcb(contentPtr: number, length: number): number;
 
     /**
+     * Configure DRC settings via JSON before running DRC.
+     * Must call _kicad_load_pcb() first. Call before _kicad_run_drc().
+     * @param configPtr Pointer to null-terminated JSON config string.
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_configure_drc(configPtr: number): number;
+
+    /**
      * Run DRC checks on the loaded PCB.
      * Must call _kicad_load_pcb() first.
      * @returns Number of violations found, or -1 on error.
@@ -56,6 +64,14 @@ export interface KicadWasmModule extends EmscriptenModule {
      * @returns 0 on success, non-zero error code on failure.
      */
     _kicad_load_schematic_sheet(sheetPathPtr: number, contentPtr: number, length: number): number;
+
+    /**
+     * Configure ERC settings via JSON before running ERC.
+     * Must call _kicad_load_schematic() first. Call before _kicad_run_erc().
+     * @param configPtr Pointer to null-terminated JSON config string.
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_configure_erc(configPtr: number): number;
 
     /**
      * Run ERC checks on the loaded schematic.
@@ -391,4 +407,58 @@ export interface NativeStepExportOptions {
      * or Module.FS.writeFile().
      */
     model_dir?: string;
+}
+
+// --- DRC/ERC Configuration Types ---
+
+/** Design settings overrides for DRC. All dimensions in millimeters. */
+export interface DrcDesignSettings {
+    min_clearance_mm?: number;
+    min_track_width_mm?: number;
+    min_via_diameter_mm?: number;
+    min_via_drill_mm?: number;
+    min_microvia_diameter_mm?: number;
+    min_microvia_drill_mm?: number;
+    min_hole_to_hole_mm?: number;
+    hole_clearance_mm?: number;
+    copper_edge_clearance_mm?: number;
+    silk_clearance_mm?: number;
+    min_silk_text_height_mm?: number;
+    min_silk_text_thickness_mm?: number;
+    min_resolved_spokes?: number;
+    min_annular_width_mm?: number;
+    solder_mask_expansion_mm?: number;
+    solder_mask_min_width_mm?: number;
+    solder_mask_to_copper_clearance_mm?: number;
+}
+
+/** Per-netclass constraint overrides. All dimensions in millimeters. */
+export interface NetclassConfig {
+    clearance_mm?: number;
+    track_width_mm?: number;
+    via_diameter_mm?: number;
+    via_drill_mm?: number;
+    microvia_diameter_mm?: number;
+    microvia_drill_mm?: number;
+    diff_pair_width_mm?: number;
+    diff_pair_gap_mm?: number;
+    diff_pair_via_gap_mm?: number;
+}
+
+/** Severity level for DRC/ERC checks. */
+export type DrcSeverity = 'error' | 'warning' | 'ignore';
+
+/** JSON configuration for kicad_configure_drc(). All fields optional. */
+export interface DrcConfig {
+    design_settings?: DrcDesignSettings;
+    netclasses?: Record<string, NetclassConfig>;
+    netclass_assignments?: Record<string, string[]>;
+    netclass_patterns?: Array<{ pattern: string; netclass: string }>;
+    severities?: Record<string, DrcSeverity>;
+}
+
+/** JSON configuration for kicad_configure_erc(). All fields optional. */
+export interface ErcConfig {
+    severities?: Record<string, DrcSeverity>;
+    pin_map?: Record<string, string>;
 }

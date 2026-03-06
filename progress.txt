@@ -60,7 +60,11 @@
 - Pin map override implemented (Stage 4d): "type1_to_type2" key format
 
 ### Stage 5: TypeScript Types and Node.js API
-- (not started)
+- Stage 5a: Updated types/kicad-wasm.d.ts with _kicad_configure_drc and _kicad_configure_erc in KicadWasmModule interface
+- Stage 5a: Added DrcDesignSettings (17 fields), NetclassConfig (9 fields), DrcSeverity type, DrcConfig, ErcConfig interfaces
+- Stage 5b: Created src/config/index.mjs with configureDrc() and configureErc() wrapper functions (alloc string, call C export, free)
+- Stage 5c: Added "./config" export to package.json exports + added src/config/index.mjs to files array
+- Stage 5d: Created docs/configuration-api.md with DRC + ERC config examples, manufacturer presets, severity lists, pin map docs
 
 ### Stage 6: Integration Tests and Edge Cases
 - (not started)
