@@ -105,3 +105,13 @@
   - Override via_diameter but not via_drill → only via_diameter violations removed
   - Strict override on one field → unrelated fields (edge clearance, via) unchanged
   - Partial ERC ignore wire_dangling → pin_not_connected and others unchanged
+- Stage 6e: Created test/test-netclass-priority.mjs: 34 assertions covering 9 test scenarios
+  - Single netclass assignment baseline (Power@0.25mm → 1 clearance violation)
+  - Two netclasses same priority, alphabetical tiebreak: AStrict wins over BRelaxed
+  - Reverse alphabetical: XRelaxed wins over YStrict (0 violations)
+  - Netclass with clearance + netclass without: clearance from the one that sets it applies
+  - Specific netclass overrides Default for assigned nets
+  - Label + pattern both contribute: alphabetically earlier LabelClass wins over PatternClass
+  - Unassigned nets fall back to Default; assigning more nets to relaxed reduces violations
+  - Three netclasses same priority: alphabetically first (AAFirst) wins
+  - Pattern-only assignments: VCC+GND via patterns both get strict netclass
