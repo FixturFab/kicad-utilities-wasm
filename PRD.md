@@ -225,26 +225,26 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Verify the WASM STEP output matches native `kicad-cli pcb export step` output.
 
-- [ ] 6a: Create `test/test-step-native-parity.mjs` that:
+- [x] 6a: Create `test/test-step-native-parity.mjs` that:
   1. Loads a test PCB via WASM (`_kicad_load_pcb`)
   2. Exports STEP via WASM (`_kicad_export_step`)
   3. Exports STEP via native `kicad-cli pcb export step` (subprocess)
   4. Compares outputs
-- [ ] 6b: Comparison levels (from strictest to most lenient):
+- [x] 6b: Comparison levels (from strictest to most lenient):
   - **Level 1**: Byte-for-byte identical (after normalizing timestamps/file paths)
   - **Level 2**: Same STEP entities (parse both, compare entity counts and types)
   - **Level 3**: Same geometry (tessellate both, compare vertex positions within tolerance)
   - **Level 4**: Same bounding box and volume (coarsest check)
   - Start with Level 2+3, aspire to Level 1
-- [ ] 6c: Create STEP comparison utility functions:
+- [x] 6c: Create STEP comparison utility functions:
   - `normalizeStepFile(content)` — strip timestamps, file paths, whitespace normalization
   - `parseStepEntities(content)` — extract entity type counts
   - `compareStepFiles(wasm, native)` — multi-level comparison returning detailed diff
-- [ ] 6d: Test with multiple PCB files:
+- [x] 6d: Test with multiple PCB files:
   - `samples/parity-test.kicad_pcb` (existing: 50x35mm, PTH, NPTH, vias, SMD, slot)
   - `public/sample.kicad_pcb` (existing: the demo PCB)
   - Create a complex test PCB with: zones, arcs, multiple board outlines, many footprints
-- [ ] 6e: Add to CI: `npm run test:step-native-parity`
+- [x] 6e: Add to CI: `npm run test:step-native-parity`
 
 **Verification**: WASM and native STEP outputs match at Level 2 (same entities) and Level 3 (same geometry within 0.001mm tolerance). Differences documented if any.
 

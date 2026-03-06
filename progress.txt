@@ -74,7 +74,13 @@
 - 5f: TypeScript types added to types/kicad-wasm.d.ts
 
 ### Stage 6: Parity Testing
-- (not started)
+- 6a: Created test/test-step-native-parity.mjs — 22 assertions, all pass
+  - parity-test.kicad_pcb: 425 entities, 40 types — IDENTICAL between WASM and native
+  - sample.kicad_pcb: 185 entities, 38 types — IDENTICAL between WASM and native
+  - Level 2 (entity type counts): PERFECT parity
+  - Level 1 (byte-for-byte): Diffs only in PRODUCT names (output filename) and Z-coordinates
+  - Z-diff: WASM (v9.99) top=1.51mm, native (v8.0.9) top=1.6mm — KiCad version diff in stackup calc
+  - Also includes normalizeStepFile(), parseStepEntities(), compareEntityMaps() utilities (covers 6c)
 
 ### Stage 7: Browser Integration and Demo Page Update
 - (not started)

@@ -113,3 +113,12 @@ All differences between WASM and native results are due to the 3 skipped tests a
 - Root cause: embind string conversion hits a Small String Optimization (SSO) boundary at 10 chars in `TCollection_AsciiString`. Filenames ≤10 chars work correctly; longer ones produce garbled FS entries.
 - Workaround: Use short filenames (e.g., `out.step` = 8 chars) and write to a known writable directory (`/home/web_user`).
 - opencascade.js version: 1.1.1, Node.js v24.13.1.
+
+## Native STEP Export (Stage 5+6)
+
+### Z-coordinate differences between WASM and native kicad-cli (documented, non-blocking):
+- WASM (KiCad v9.99 source) top surface at z=1.51mm, native (kicad-cli v8.0.9) at z=1.6mm
+- Bottom surface: WASM z=-0.046mm, native z=-0.045mm
+- Root cause: KiCad v9 changed how board stackup thickness is calculated (accounts for soldermask/copper layers differently than v8)
+- Entity types and counts are IDENTICAL between WASM and native (Level 2 parity: perfect)
+- PRODUCT name differs: WASM uses output filename ("out"), native uses PCB board name — cosmetic only
