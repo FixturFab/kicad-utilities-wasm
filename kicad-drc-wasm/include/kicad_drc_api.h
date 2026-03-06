@@ -15,6 +15,15 @@ extern "C" {
 int kicad_load_pcb(const char* pcb_content, size_t length);
 
 /**
+ * Configure DRC settings via JSON before running DRC.
+ * Must call kicad_load_pcb() first. Call before kicad_run_drc().
+ * All fields are optional — omitted fields keep their values from the PCB file.
+ * @param json_config  JSON string with design_settings overrides (mm units).
+ * @return 0 on success, non-zero error code on failure.
+ */
+int kicad_configure_drc(const char* json_config);
+
+/**
  * Run DRC checks on the loaded PCB.
  * Must call kicad_load_pcb() first.
  * @return Number of violations found, or -1 on error.

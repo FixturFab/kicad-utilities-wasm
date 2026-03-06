@@ -1,26 +1,165 @@
-# KiCad Native STEP Export via WASM - Product Requirements Document
+# DRC/ERC JSON Configuration API - Product Requirements Document
 
 ## Overview
 
-**Project Goal**: Compile KiCad's native STEP exporter (`exporter_step.cpp` + `step_pcb_model.cpp`) to WASM as a monolith alongside OCCT 7.6.3, achieving exact parity with `kicad-cli pcb export step`.
+**Project Goal**: Add JSON-based configuration of DRC rules, netclasses, design settings, and ERC severity settings to the KiCad WASM module, so users can programmatically control validation parameters before running checks.
 
-**Why**: The previous approach (JS reimplementation via `opencascade.js`) cannot achieve parity:
-- opencascade.js ships OCCT 7.4.0p1, but KiCad 8.0.9 requires OCCT 7.5.0+ (hard-enforced)
-- API breaks between 7.4 and 7.6: `Message_Printer` signatures, color spaces, `BRepTools::Write()`
-- JS reimplementation introduces subtle geometry bugs that are hard to detect and fix
-- Boolean operations fail silently in browser due to broken C++ exception handling
-- Output is 2.5-4.2x larger than native due to missing XCAFDoc assembly hierarchy
+**Why**: Currently `kicad_run_drc()` and `kicad_run_erc()` use only the settings embedded in the PCB/schematic file with no way to override them. Production use cases (automated design validation, CI pipelines, configurable rule sets per manufacturer) require programmatic control of:
+- Board design constraints (min clearance, min track width, min via size, etc.)
+- Netclass definitions (clearance, track width, via size per net group)
+- Netclass-to-net assignments
+- DRC severity overrides (error/warning/ignore per check type)
+- ERC severity overrides and pin conflict matrix
+- Custom DRC rules
 
-**Architecture**: Single WASM binary containing KiCad's PCB engine + OCCT 7.6.3 + KiCad's native STEP exporter. The BOARD is already loaded in memory (for DRC/ERC). We add `_kicad_export_step()` that calls `EXPORTER_STEP::Export()` directly.
-
+**Architecture**: New C API functions called between `kicad_load_pcb()` and `kicad_run_drc()`:
 ```
-KiCad WASM (existing: DRC + ERC + geometry)
-    + OCCT 7.6.3 (compiled from source via Emscripten)
-    + KiCad STEP exporter (exporter_step.cpp, step_pcb_model.cpp)
-    = Single WASM binary with exact native parity
+kicad_load_pcb(content)           // Load the board
+kicad_configure_drc(json)         // Override design settings, netclasses, severities
+kicad_run_drc()                   // Run with configured settings
+kicad_get_drc_results()           // Get results
 ```
 
-**Target Environments**: Node.js and Browser (same as DRC/ERC)
+Same pattern for ERC:
+```
+kicad_load_schematic(content)
+kicad_configure_erc(json)
+kicad_run_erc()
+kicad_get_erc_results()
+```
+
+**Target Environments**: Node.js and Browser (same as existing API)
+
+---
+
+## JSON Schema
+
+### DRC Configuration (`kicad_configure_drc`)
+
+```json
+{
+  "design_settings": {
+    "min_clearance_mm": 0.15,
+    "min_track_width_mm": 0.2,
+    "min_via_diameter_mm": 0.5,
+    "min_via_drill_mm": 0.3,
+    "min_microvia_diameter_mm": 0.2,
+    "min_microvia_drill_mm": 0.1,
+    "min_hole_to_hole_mm": 0.25,
+    "hole_clearance_mm": 0.25,
+    "copper_edge_clearance_mm": 0.5,
+    "silk_clearance_mm": 0.0,
+    "min_silk_text_height_mm": 0.8,
+    "min_silk_text_thickness_mm": 0.1,
+    "min_courtyard_clearance_mm": 0.0,
+    "min_resolved_spokes": 2,
+    "min_annular_width_mm": 0.13,
+    "solder_mask_expansion_mm": 0.0,
+    "solder_mask_min_width_mm": 0.0,
+    "solder_mask_to_copper_clearance_mm": 0.0
+  },
+
+  "netclasses": {
+    "Default": {
+      "clearance_mm": 0.2,
+      "track_width_mm": 0.25,
+      "via_diameter_mm": 0.8,
+      "via_drill_mm": 0.4,
+      "microvia_diameter_mm": 0.3,
+      "microvia_drill_mm": 0.1,
+      "diff_pair_width_mm": 0.2,
+      "diff_pair_gap_mm": 0.15,
+      "diff_pair_via_gap_mm": 0.15
+    },
+    "Power": {
+      "clearance_mm": 0.3,
+      "track_width_mm": 0.5,
+      "via_diameter_mm": 1.0,
+      "via_drill_mm": 0.5
+    }
+  },
+
+  "netclass_assignments": {
+    "GND": ["Power"],
+    "VCC": ["Power"],
+    "/USB_D+": ["USB"],
+    "/USB_D-": ["USB"]
+  },
+
+  "netclass_patterns": [
+    { "pattern": "PWR_*", "netclass": "Power" },
+    { "pattern": "USB_*", "netclass": "USB" }
+  ],
+
+  "severities": {
+    "clearance": "error",
+    "track_width": "error",
+    "via_diameter": "error",
+    "via_drill": "error",
+    "hole_clearance": "error",
+    "hole_to_hole": "error",
+    "edge_clearance": "error",
+    "annular_width": "warning",
+    "silk_clearance": "warning",
+    "courtyard_clearance": "warning",
+    "unconnected_items": "error",
+    "dangling_via": "warning",
+    "dangling_track": "warning",
+    "duplicate_footprints": "warning",
+    "missing_courtyard": "ignore",
+    "missing_footprint": "warning",
+    "shorting_items": "error",
+    "copper_sliver": "warning",
+    "starved_thermal": "warning",
+    "solder_mask_bridge": "ignore"
+  }
+}
+```
+
+All fields are optional — omitted fields keep their values from the PCB file. All dimensions are in millimeters.
+
+### ERC Configuration (`kicad_configure_erc`)
+
+```json
+{
+  "severities": {
+    "pin_not_connected": "error",
+    "pin_not_driven": "error",
+    "missing_power_pin": "warning",
+    "missing_input_pin": "warning",
+    "missing_bidi_pin": "warning",
+    "duplicate_sheet_name": "error",
+    "endpoint_off_grid": "warning",
+    "noconnect_connected": "warning",
+    "noconnect_not_connected": "warning",
+    "label_not_connected": "error",
+    "similar_labels": "warning",
+    "similar_power_labels": "ignore",
+    "different_unit_footprint": "error",
+    "different_unit_net": "error",
+    "bus_conflict": "error",
+    "wire_dangling": "warning",
+    "unresolved_variable": "error",
+    "undefined_netclass": "warning",
+    "unannotated": "error",
+    "extra_units": "warning",
+    "different_unit_value": "error",
+    "duplicate_reference": "error",
+    "four_way_junction": "ignore",
+    "lib_symbol_issues": "warning",
+    "lib_symbol_mismatch": "warning"
+  },
+
+  "pin_map": {
+    "input_to_input": "warning",
+    "input_to_output": "ok",
+    "output_to_output": "error",
+    "passive_to_passive": "ok",
+    "power_to_power": "ok",
+    "unconnected_to_any": "error"
+  }
+}
+```
 
 ---
 
@@ -28,305 +167,285 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 | Source File | Purpose |
 |-------------|---------|
-| `kicad-src/pcbnew/exporters/step/exporter_step.cpp` | Main export logic (1,391 lines) |
-| `kicad-src/pcbnew/exporters/step/step_pcb_model.cpp` | 3D model construction via OCCT (4,302 lines) |
-| `kicad-src/pcbnew/exporters/step/exporter_step.h` | EXPORTER_STEP class + EXPORTER_STEP_PARAMS |
-| `kicad-src/pcbnew/exporters/step/step_pcb_model.h` | STEP_PCB_MODEL class (401 lines) |
-| `kicad-src/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx` | Custom OCCT assembly graph (270 lines) |
-| `kicad-src/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.hxx` | Assembly graph header (220 lines) |
-| `kicad-src/pcbnew/exporters/step/kicad3d_info.cpp` | 3D model info struct (90 lines) |
-| `kicad-src/common/jobs/job_export_pcb_3d.h` | EXPORTER_STEP_PARAMS class definition |
-| `kicad-drc-wasm/src/api.cpp` | Existing WASM API (integration point) |
-| `kicad-drc-wasm/CMakeLists.txt` | Existing WASM build configuration |
+| `kicad-drc-wasm/src/api.cpp` | WASM API — add new functions here |
+| `kicad-src/include/board_design_settings.h` | BOARD_DESIGN_SETTINGS class (numeric constraints) |
+| `kicad-src/include/netclass.h` | NETCLASS class (per-netclass parameters) |
+| `kicad-src/include/project/net_settings.h` | NET_SETTINGS (netclass management + assignments) |
+| `kicad-src/pcbnew/drc/drc_rule.h` | DRC_CONSTRAINT_T enum, DRC_RULE class |
+| `kicad-src/pcbnew/drc/drc_engine.h` | DRC_ENGINE (settings access, rule evaluation) |
+| `kicad-src/eeschema/erc/erc_settings.h` | ERC_SETTINGS (severities, pin map) |
+| `kicad-src/eeschema/erc/erc_item.h` | ERCE_T enum (ERC error codes) |
+| `kicad-src/pcbnew/drc/drc_item.h` | DRCE_T enum (DRC error codes) |
+| `kicad-drc-wasm/types/kicad-wasm.d.ts` | TypeScript type declarations |
 
-**OCCT on system**: v7.6.3, headers at `/usr/include/opencascade/` (7,543 headers), 50 libraries at `/usr/lib/x86_64-linux-gnu/libTK*.so`, CMake config at `/usr/lib/x86_64-linux-gnu/cmake/opencascade/`.
-
-**OCCT version-conditional code in exporter** (11 occurrences):
-- `OCC_VERSION_HEX < 0x070500`: Message_Printer old API (we use 7.6.3, takes new path)
-- `OCC_VERSION_HEX >= 0x070600`: BRepTools::Write extended signature (we take this path)
-- `OCC_VERSION_HEX >= 0x070700`: VrmlAPI_CafReader, RWPly_CafWriter (we skip, 7.6 < 7.7)
-- `OCC_VERSION_HEX > 0x070101`: UpdateAssemblies (we take this path)
+**Unit conversion**: KiCad uses nanometers internally. Convert mm to IU via `pcbIUScale.mmToIU(value_mm)` (multiply by 1e6). The JSON API uses millimeters exclusively.
 
 ---
 
-## Stage 1: Download and Configure OCCT 7.6.3 Source for Emscripten
+## Stage 1: DRC Design Settings Override
 
-**Goal**: Get OCCT 7.6.3 source tree, configure a minimal Emscripten build with only the modules needed for STEP export.
+**Goal**: Allow overriding board-level numeric constraints (min clearance, min track width, etc.) via JSON before running DRC.
 
-- [x] 1a: Download OCCT 7.6.3 source release to `kicad-drc-wasm/thirdparty/occt-7.6.3/`
-- [x] 1b: Identify the minimal set of OCCT modules needed. Based on KiCad's `FindOCC.cmake` and the exporter's `#include` directives, we need these OCCT toolkits:
-  - **Foundation**: TKernel, TKMath
-  - **Modeling Data**: TKG2d, TKG3d, TKGeomBase, TKBRep
-  - **Modeling Algorithms**: TKGeomAlgo, TKTopAlgo, TKShHealing, TKBool, TKBO, TKPrim, TKFillet, TKOffset, TKFeat, TKHLR
-  - **Data Exchange**: TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209, TKXSBase, TKIGES, TKXDESTEP, TKXDEIGES, TKRWMesh, TKMesh, TKSTL, TKVRML
-  - **Application Framework**: TKCAF, TKCDF, TKLCAF, TKXCAF, TKBinXCAF, TKBin, TKBinL, TKBinTObj, TKTObj, TKService, TKV3d, TKXMesh
-  - Exclude visualization (TKOpenGl, TKMeshVS), XML persistence (TKXml*), Draw harness
-- [x] 1c: Create `kicad-drc-wasm/thirdparty/occt-emscripten.cmake` that:
-  - Sets OCCT source root
-  - Defines `BUILD_MODULE_*` variables to enable/disable modules
-  - Sets Emscripten-specific compile flags (`-O3 -flto -fexceptions -pthread`)
-  - Disables platform-specific code (X11, OpenGL, Tcl/Tk)
-  - Stubs out `OSD_Path`, `OSD_Process` platform calls (reference: opencascade.js patches)
-- [x] 1d: Test that OCCT headers are parseable by Emscripten compiler with a minimal test:
-  ```cpp
-  #include <Standard_Version.hxx>
-  #include <gp_Pnt.hxx>
-  #include <BRepPrimAPI_MakeCylinder.hxx>
-  int main() { return OCC_VERSION_MAJOR; }
-  ```
+- [x] 1a: Add `kicad_configure_drc(const char* json)` function to `api.cpp`
+  - Parse JSON using nlohmann::json (already included)
+  - Access `g_board->GetDesignSettings()` to get `BOARD_DESIGN_SETTINGS&`
+  - Apply `design_settings` fields if present in JSON
+  - Map mm values to internal units via `pcbIUScale.mmToIU()`
+  - Fields to support:
+    - `min_clearance_mm` → `m_MinClearance`
+    - `min_track_width_mm` → `m_TrackMinWidth`
+    - `min_via_diameter_mm` → `m_ViasMinSize`
+    - `min_via_drill_mm` → `m_MinThroughDrill`
+    - `min_microvia_diameter_mm` → `m_MicroViasMinSize`
+    - `min_microvia_drill_mm` → `m_MicroViasMinDrill`
+    - `min_hole_to_hole_mm` → `m_HoleToHoleMin`
+    - `hole_clearance_mm` → `m_HoleClearance`
+    - `copper_edge_clearance_mm` → `m_CopperEdgeClearance`
+    - `silk_clearance_mm` → `m_SilkClearance`
+    - `min_silk_text_height_mm` → `m_MinSilkTextHeight`
+    - `min_silk_text_thickness_mm` → `m_MinSilkTextThickness`
+    - `min_resolved_spokes` → `m_MinResolvedSpokes`
+    - `min_annular_width_mm` → `m_ViasMinAnnularWidth`
+    - `solder_mask_expansion_mm` → `m_SolderMaskExpansion`
+    - `solder_mask_min_width_mm` → `m_SolderMaskMinWidth`
+    - `solder_mask_to_copper_clearance_mm` → `m_SolderMaskToCopperClearance`
+  - Return 0 on success, -1 on error
+- [x] 1b: Add `_kicad_configure_drc` to EXPORTED_FUNCTIONS in CMakeLists.txt
+- [x] 1c: Create `test/test-drc-config.mjs` that:
+  1. Loads a PCB with known DRC violations at default settings
+  2. Runs DRC with defaults, counts violations
+  3. Calls `kicad_configure_drc` with relaxed settings (e.g. larger min clearance)
+  4. Runs DRC again, verifies different violation count
+  5. Calls `kicad_configure_drc` with strict settings
+  6. Runs DRC again, verifies more violations
+- [x] 1d: Create test PCB `samples/drc-config-test.kicad_pcb` with:
+  - Tracks at various widths (0.1mm, 0.15mm, 0.2mm, 0.25mm)
+  - Clearances at various distances (0.1mm, 0.15mm, 0.2mm)
+  - Vias at various sizes (0.4mm, 0.5mm, 0.6mm)
+  - Drill holes at various spacings
+  - So violation count changes predictably with different thresholds
 
-**Verification**: `emcc` compiles the test file without errors against OCCT 7.6.3 headers.
-
----
-
-## Stage 2: Compile OCCT Core Modules to WASM Static Libraries
-
-**Goal**: Compile the OCCT foundation and modeling modules as static libraries via Emscripten.
-
-- [x] 2a: Add OCCT source compilation to CMakeLists.txt. Start with just TKernel + TKMath. These are the base modules with the most platform-specific code (threading, file I/O, memory management). Getting these to compile first validates our platform stubs.
-- [x] 2b: Create `kicad-drc-wasm/stubs/occt/` directory with platform stubs for Emscripten:
-  - NOT NEEDED: OCCT 7.6.3 has native `__EMSCRIPTEN__` support in OSD, Standard, etc.
-  - Only fix required: `-U__linux__` in OCCT compile options to prevent conflict with global KiCad define
-- [x] 2c: Compile TKG2d, TKG3d, TKGeomBase, TKBRep (modeling data modules)
-- [x] 2d: Compile TKGeomAlgo, TKTopAlgo, TKShHealing (modeling algorithm modules)
-- [x] 2e: Compile TKBool, TKBO, TKPrim, TKFillet (boolean operations + primitives)
-- [x] 2f: Validate with a test that creates a cylinder and performs a boolean cut:
-  ```cpp
-  #include <BRepPrimAPI_MakeCylinder.hxx>
-  #include <BRepPrimAPI_MakeBox.hxx>
-  #include <BRepAlgoAPI_Cut.hxx>
-  // Create box, cut hole, verify shape is valid
-  ```
-
-**Verification**: Emscripten produces `.a` static libraries for each toolkit. Test program links and runs under Node.js.
+**Verification**: DRC violation count changes when design settings are overridden. Test demonstrates at least 3 different configurations producing different results.
 
 ---
 
-## Stage 3: Compile OCCT STEP I/O and Application Framework Modules
+## Stage 2: Netclass Configuration
 
-**Goal**: Compile the STEP reader/writer and XDE assembly framework modules.
+**Goal**: Allow defining netclasses and assigning them to nets via JSON.
 
-- [x] 3a: Compile TKXSBase, TKSTEP, TKSTEPBase, TKSTEPAttr, TKSTEP209 (STEP I/O core)
-- [x] 3b: Compile TKCDF, TKLCAF, TKCAF, TKTObj (application framework)
-- [x] 3c: Compile TKXCAF, TKXDESTEP (XDE STEP, assembly support with colors/materials)
-- [x] 3d: Compile remaining needed modules: TKIGES, TKXDEIGES, TKBin, TKBinL, TKBinTObj, TKBinXCAF, TKService, TKV3d, TKRWMesh, TKMesh, TKSTL, TKVRML, TKXMesh, TKOffset, TKFeat, TKHLR
-- [x] 3e: Validate with a test that writes a STEP file:
-  ```cpp
-  #include <STEPCAFControl_Writer.hxx>
-  #include <BRepPrimAPI_MakeBox.hxx>
-  #include <XCAFApp_Application.hxx>
-  // Create document, add shape, write STEP to virtual FS, read back and verify ISO-10303 header
-  ```
+- [x] 2a: Add netclass parsing to `kicad_configure_drc`:
+  - Parse `netclasses` object from JSON
+  - For each netclass name:
+    - If "Default", modify `m_defaultNetClass`
+    - Otherwise, create new `NETCLASS` and add to `NET_SETTINGS::m_netClasses`
+    - Set fields: clearance, track_width, via_diameter, via_drill, microvia_diameter, microvia_drill, diff_pair_width, diff_pair_gap, diff_pair_via_gap
+    - All values in mm → convert to IU
+  - Access path: `g_board->GetDesignSettings().m_NetSettings->...`
+- [x] 2b: Add netclass assignment parsing:
+  - Parse `netclass_assignments` object: `{ "net_name": ["netclass1", "netclass2"] }`
+  - Apply via `NET_SETTINGS::SetNetclassLabelAssignment()`
+  - Parse `netclass_patterns` array: `[{ "pattern": "PWR_*", "netclass": "Power" }]`
+  - Apply via `NET_SETTINGS::SetNetclassPatternAssignment()`
+- [x] 2c: After applying netclasses, manually iterate nets and assign effective netclasses (BOARD::SynchronizeNetsAndNetClasses requires m_project which is not available in WASM standalone mode)
+- [x] 2d: Create test that:
+  1. Loads PCB with VCC/GND/SIG nets and close track pairs (0.15mm gap)
+  2. Verifies baseline with relaxed Default netclass → no clearance violations
+  3. Creates Power netclass with clearance=0.25mm, assigns VCC → 1 violation
+  4. Lowers Power clearance to 0.05mm → 0 violations
+  5. Assigns both VCC+GND to Power → 2 violations
+  6. Tests pattern-based assignment → 1 violation
+  7. Tests Default netclass override → 2 violations
 
-**Verification**: STEP write test produces valid STEP file bytes in Emscripten virtual FS. File starts with `ISO-10303-21`.
-
----
-
-## Stage 4: Integrate KiCad's STEP Exporter Source Files
-
-**Goal**: Compile KiCad's native STEP exporter files and link them with the OCCT WASM libraries.
-
-- [x] 4a: Add OCCT include directory to `KICAD_INCLUDE_DIRS` in CMakeLists.txt (WASM section)
-- [x] 4b: Add KiCad STEP exporter source files to the WASM build:
-  ```cmake
-  set(STEP_EXPORTER_SOURCES
-      ${KICAD_SRC}/pcbnew/exporters/step/exporter_step.cpp
-      ${KICAD_SRC}/pcbnew/exporters/step/step_pcb_model.cpp
-      ${KICAD_SRC}/pcbnew/exporters/step/kicad3d_info.cpp
-      ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
-  )
-  ```
-- [x] 4c: Handle additional KiCad dependencies the exporter needs that may not be compiled yet:
-  - `filename_resolver.cpp` — 3D model file path resolution
-  - `convert_basic_shapes_to_polygon.cpp` — geometry conversion
-  - `streamwrapper.cpp` — OCCT stream wrapper (Windows+GCC only, excluded with note)
-  - `exporters/u3d/writer.cpp` — U3D writer (may need stub if only STEP is needed)
-  - `pcb_painter.cpp` — color extraction (may need stub)
-  - Any other missing symbols found during linking
-- [x] 4d: Add stubs for features we don't need in WASM:
-  - wxStringOutputStream, wxStdOutputStream, wxZlibOutputStream stubs
-  - wxInputStream::Read(wxOutputStream&), stream Close() methods
-  - wxString::ToAscii(), wxString::erase(iterator) overloads
-  - wxInvalidOffset, wxFFileInputStream::Reset/SeekI, wxZipInputStream::CanRead
-  - wxRenameFile 3-arg overload
-- [x] 4e: Compile and fix all remaining link errors. The exporter uses these KiCad classes that should already be compiled in pcbcommon_wasm: BOARD, FOOTPRINT, PAD, PCB_TRACK, ZONE, SHAPE_POLY_SET, BOARD_STACKUP, PCB_SHAPE, PCB_TEXTBOX, PCB_TABLE.
-- [x] 4f: Link OCCT static libraries into the final WASM target:
-  ```cmake
-  target_link_libraries(kicad_drc PRIVATE
-      # ... existing libraries ...
-      # OCCT static libraries
-      TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep
-      TKGeomAlgo TKTopAlgo TKShHealing TKBool TKBO TKPrim TKFillet
-      TKSTEP TKSTEPBase TKSTEPAttr TKSTEP209 TKXSBase
-      TKCDF TKLCAF TKCAF TKTObj TKXCAF TKXDESTEP
-      TKBinXCAF TKBin TKBinL TKBinTObj TKService TKV3d
-      TKRWMesh TKMesh TKSTL TKVRML TKXMesh
-      TKIGES TKXDEIGES TKOffset TKFeat TKHLR
-  )
-  ```
-
-**Verification**: WASM binary compiles and links without errors. Binary size noted. Existing DRC/ERC tests still pass.
+**Verification**: Netclass assignments change which DRC rules apply to which nets. Track width violations appear/disappear based on netclass settings.
 
 ---
 
-## Stage 5: Add `_kicad_export_step()` API Function
+## Stage 3: DRC Severity Configuration
 
-**Goal**: Expose the STEP export as a C API function in the WASM module, reusing the already-loaded BOARD.
+**Goal**: Allow overriding severity (error/warning/ignore) for individual DRC check types.
 
-- [x] 5a: Add the export function to `api.cpp`:
-  ```cpp
-  #include <exporters/step/exporter_step.h>
+- [ ] 3a: Add severity parsing to `kicad_configure_drc`:
+  - Parse `severities` object from JSON
+  - Map human-readable names to `DRCE_T` enum values:
+    - `"clearance"` → `DRCE_CLEARANCE`
+    - `"track_width"` → `DRCE_TRACK_WIDTH`
+    - `"via_diameter"` → `DRCE_VIA_DIAMETER`
+    - `"via_drill"` → `DRCE_VIA_DRILL_TOO_SMALL` (verify exact name)
+    - `"hole_clearance"` → `DRCE_HOLE_CLEARANCE`
+    - `"hole_to_hole"` → `DRCE_DRILLED_HOLES_TOO_CLOSE`
+    - `"edge_clearance"` → `DRCE_COPPER_EDGE_CLEARANCE`
+    - `"annular_width"` → `DRCE_VIA_ANNULAR_WIDTH`
+    - `"silk_clearance"` → `DRCE_SILK_CLEARANCE`
+    - `"courtyard_clearance"` → `DRCE_OVERLAPPING_FOOTPRINTS`
+    - `"unconnected_items"` → `DRCE_UNCONNECTED_ITEMS`
+    - `"dangling_via"` → `DRCE_DANGLING_VIA`
+    - `"dangling_track"` → `DRCE_DANGLING_TRACK`
+    - `"shorting_items"` → `DRCE_SHORTING_ITEMS`
+    - `"copper_sliver"` → `DRCE_COPPER_SLIVER`
+    - `"starved_thermal"` → `DRCE_STARVED_THERMAL`
+    - `"solder_mask_bridge"` → `DRCE_SOLDERMASK_BRIDGE`
+    - `"missing_courtyard"` → `DRCE_MISSING_COURTYARD`
+    - (full list to be determined from drc_item.h)
+  - Map severity strings: `"error"` → `RPT_SEVERITY_ERROR`, `"warning"` → `RPT_SEVERITY_WARNING`, `"ignore"` → `RPT_SEVERITY_IGNORE`
+  - Apply via `BOARD_DESIGN_SETTINGS::m_DRCSeverities[errorCode] = severity`
+- [ ] 3b: Create test that:
+  1. Loads a PCB with clearance violations
+  2. Runs DRC with default severities — counts errors
+  3. Sets `"clearance": "ignore"` — runs DRC, verifies clearance violations gone
+  4. Sets `"clearance": "warning"` — runs DRC, verifies clearance items are warnings not errors
+- [ ] 3c: Verify that severity filtering works in JSON output — warnings and errors should be distinguishable, ignored checks should not appear
 
-  extern "C" {
+**Verification**: Setting severity to "ignore" removes those violations from results. Setting to "warning" changes their severity level.
 
-  const char* kicad_export_step(const char* options_json)
-  {
-      if (!g_board)
-          return nullptr;
+---
 
-      // Parse options from JSON (output format, origin, component filtering, etc.)
-      EXPORTER_STEP_PARAMS params;
-      params.m_Format = EXPORTER_STEP_PARAMS::FORMAT::STEP;
-      params.m_ExportBoardBody = true;
-      params.m_ExportComponents = true;
-      // ... parse remaining options from JSON ...
+## Stage 4: ERC Configuration
 
-      // Write to virtual FS path
-      wxString outputPath = wxS("/tmp/kicad_wasm_step/output.step");
-      params.m_OutputFile = outputPath;
+**Goal**: Allow overriding ERC severity settings and pin conflict matrix via JSON.
 
-      // Create reporter, run export
-      EXPORTER_STEP exporter(g_board, params, /* reporter */);
-      exporter.m_outputFile = outputPath;
-      bool ok = exporter.Export();
+- [ ] 4a: Add `kicad_configure_erc(const char* json)` function to `api.cpp`
+  - Parse JSON using nlohmann::json
+  - Access ERC settings via the SCHEMATIC object
+  - Apply `severities` overrides:
+    - Map human-readable names to `ERCE_T` enum values:
+      - `"pin_not_connected"` → `ERCE_PIN_NOT_CONNECTED`
+      - `"pin_not_driven"` → `ERCE_PIN_NOT_DRIVEN`
+      - `"missing_power_pin"` → `ERCE_MISSING_POWER_INPUT_PIN`
+      - `"missing_input_pin"` → `ERCE_MISSING_INPUT_PIN`
+      - `"missing_bidi_pin"` → `ERCE_MISSING_BIDI_PIN`
+      - `"duplicate_sheet_name"` → `ERCE_DUPLICATE_SHEET_NAME`
+      - `"endpoint_off_grid"` → `ERCE_ENDPOINT_OFF_GRID`
+      - `"noconnect_connected"` → `ERCE_NOCONNECT_CONNECTED`
+      - `"noconnect_not_connected"` → `ERCE_NOCONNECT_NOT_CONNECTED`
+      - `"label_not_connected"` → `ERCE_LABEL_NOT_CONNECTED`
+      - `"similar_labels"` → `ERCE_SIMILAR_LABELS`
+      - `"different_unit_footprint"` → `ERCE_DIFFERENT_UNIT_FP`
+      - `"different_unit_net"` → `ERCE_DIFFERENT_UNIT_NET`
+      - `"wire_dangling"` → `ERCE_WIRE_DANGLING`
+      - `"unresolved_variable"` → `ERCE_UNRESOLVED_VARIABLE`
+      - `"undefined_netclass"` → `ERCE_UNDEFINED_NETCLASS`
+      - `"unannotated"` → `ERCE_UNANNOTATED`
+      - `"extra_units"` → `ERCE_EXTRA_UNITS`
+      - `"different_unit_value"` → `ERCE_DIFFERENT_UNIT_VALUE`
+      - `"duplicate_reference"` → `ERCE_DUPLICATE_REFERENCE`
+      - `"four_way_junction"` → `ERCE_FOUR_WAY_JUNCTION`
+      - `"lib_symbol_issues"` → `ERCE_LIB_SYMBOL_ISSUES`
+      - (full list from erc_settings.h)
+    - Apply via `ERC_SETTINGS::SetSeverity(errorCode, severity)`
+  - Return 0 on success, -1 on error
+- [ ] 4b: Add `_kicad_configure_erc` to EXPORTED_FUNCTIONS in CMakeLists.txt
+- [ ] 4c: Create `test/test-erc-config.mjs` that:
+  1. Loads a schematic with known ERC violations
+  2. Runs ERC with defaults, counts violations
+  3. Sets some checks to "ignore", runs ERC, verifies fewer violations
+  4. Sets some checks to "warning", verifies severity level changes in output
+- [ ] 4d: Optional — add pin conflict matrix override via `pin_map` in JSON
 
-      // Read STEP file from virtual FS, return as string
+**Verification**: ERC violation count and severity change when settings are overridden.
+
+---
+
+## Stage 5: TypeScript Types and Node.js API
+
+**Goal**: Clean TypeScript API with proper types for all configuration options.
+
+- [ ] 5a: Update `types/kicad-wasm.d.ts` with:
+  ```typescript
+  interface DrcDesignSettings {
+    min_clearance_mm?: number;
+    min_track_width_mm?: number;
+    min_via_diameter_mm?: number;
+    min_via_drill_mm?: number;
+    min_microvia_diameter_mm?: number;
+    min_microvia_drill_mm?: number;
+    min_hole_to_hole_mm?: number;
+    hole_clearance_mm?: number;
+    copper_edge_clearance_mm?: number;
+    silk_clearance_mm?: number;
+    min_silk_text_height_mm?: number;
+    min_silk_text_thickness_mm?: number;
+    min_resolved_spokes?: number;
+    min_annular_width_mm?: number;
+    solder_mask_expansion_mm?: number;
+    solder_mask_min_width_mm?: number;
+    solder_mask_to_copper_clearance_mm?: number;
   }
 
-  } // extern "C"
+  interface NetclassConfig {
+    clearance_mm?: number;
+    track_width_mm?: number;
+    via_diameter_mm?: number;
+    via_drill_mm?: number;
+    microvia_diameter_mm?: number;
+    microvia_drill_mm?: number;
+    diff_pair_width_mm?: number;
+    diff_pair_gap_mm?: number;
+    diff_pair_via_gap_mm?: number;
+  }
+
+  type DrcSeverity = 'error' | 'warning' | 'ignore';
+
+  interface DrcConfig {
+    design_settings?: DrcDesignSettings;
+    netclasses?: Record<string, NetclassConfig>;
+    netclass_assignments?: Record<string, string[]>;
+    netclass_patterns?: Array<{ pattern: string; netclass: string }>;
+    severities?: Record<string, DrcSeverity>;
+  }
+
+  interface ErcConfig {
+    severities?: Record<string, DrcSeverity>;
+    pin_map?: Record<string, string>;
+  }
+
+  function kicad_configure_drc(config: string): number;
+  function kicad_configure_erc(config: string): number;
   ```
-- [x] 5b: Add `_kicad_export_step` to EXPORTED_FUNCTIONS in CMakeLists.txt link flags
-- [x] 5c: Add options parsing: accept JSON with fields for export parameters (format, origin, components, tracks, silkscreen, soldermask, etc.) mapping to EXPORTER_STEP_PARAMS fields
-- [x] 5d: Handle the STEP file output:
-  - Option A: Return the STEP file content as a string (simple, works for STEP text format)
-  - Option B: Write to Emscripten virtual FS and return the path (supports binary formats like GLB)
-  - Implement both: string return for STEP, FS path for binary formats
-- [x] 5e: Handle 3D model resolution. The exporter calls `FILENAME_RESOLVER` to find `.step`/`.wrl` model files. For WASM:
-  - Accept a model map via the options JSON: `{ "models": { "path/to/model.step": <FS path> } }`
-  - Write models to virtual FS before export
-  - Or: export with `m_BoardOnly = true` initially (no component models), add model support later
-- [x] 5f: Add TypeScript type declarations to `types/kicad-wasm.d.ts`
-
-**Verification**: `_kicad_export_step` is callable from Node.js. Returns a STEP file string for a loaded PCB.
-
----
-
-## Stage 6: Parity Testing — Comparison with Native kicad-cli
-
-**Goal**: Verify the WASM STEP output matches native `kicad-cli pcb export step` output.
-
-- [x] 6a: Create `test/test-step-native-parity.mjs` that:
-  1. Loads a test PCB via WASM (`_kicad_load_pcb`)
-  2. Exports STEP via WASM (`_kicad_export_step`)
-  3. Exports STEP via native `kicad-cli pcb export step` (subprocess)
-  4. Compares outputs
-- [x] 6b: Comparison levels (from strictest to most lenient):
-  - **Level 1**: Byte-for-byte identical (after normalizing timestamps/file paths)
-  - **Level 2**: Same STEP entities (parse both, compare entity counts and types)
-  - **Level 3**: Same geometry (tessellate both, compare vertex positions within tolerance)
-  - **Level 4**: Same bounding box and volume (coarsest check)
-  - Start with Level 2+3, aspire to Level 1
-- [x] 6c: Create STEP comparison utility functions:
-  - `normalizeStepFile(content)` — strip timestamps, file paths, whitespace normalization
-  - `parseStepEntities(content)` — extract entity type counts
-  - `compareStepFiles(wasm, native)` — multi-level comparison returning detailed diff
-- [x] 6d: Test with multiple PCB files:
-  - `samples/parity-test.kicad_pcb` (existing: 50x35mm, PTH, NPTH, vias, SMD, slot)
-  - `public/sample.kicad_pcb` (existing: the demo PCB)
-  - Create a complex test PCB with: zones, arcs, multiple board outlines, many footprints
-- [x] 6e: Add to CI: `npm run test:step-native-parity`
-
-**Verification**: WASM and native STEP outputs match at Level 2 (same entities) and Level 3 (same geometry within 0.001mm tolerance). Differences documented if any.
-
----
-
-## Stage 7: Browser Integration and Demo Page Update
-
-**Goal**: Update the browser demo page to use the native STEP export instead of the JS reimplementation.
-
-- [x] 7a: Update `public/step.html` to call `_kicad_export_step()` instead of the JS StepBuilder
-  - Remove the entire inline StepBuilder class
-  - Remove the opencascade.js dependency (no more 63MB WASM download)
-  - The STEP export now happens inside the existing KiCad WASM module
-- [x] 7b: Update the Generate STEP button handler:
+- [ ] 5b: Create wrapper functions in a JS module (`src/config/index.mjs`):
   ```javascript
-  async function generateStep() {
-      const optionsJson = JSON.stringify({
-          format: "step",
-          board_only: true,
-          export_board_body: true,
-          export_components: false
-      });
-      const stepContent = Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson]);
-      // Enable download button with stepContent
+  export function configureDrc(module, config) {
+    return module.ccall('kicad_configure_drc', 'number', ['string'], [JSON.stringify(config)]);
+  }
+  export function configureErc(module, config) {
+    return module.ccall('kicad_configure_erc', 'number', ['string'], [JSON.stringify(config)]);
   }
   ```
-- [x] 7c: Keep the three.js 3D preview (tessellate the STEP output for display)
-- [x] 7d: Update `package.json` — remove `opencascade.js` dependency
-- [x] 7e: Update the step-export module (`src/step-export/index.mjs`) to use the native API
-- [x] 7f: Run all existing tests to verify no regressions
+- [ ] 5c: Add `"./config"` export to `package.json`
+- [ ] 5d: Update README or API docs with configuration examples
 
-**Verification**: Browser demo exports STEP files using the native exporter. No opencascade.js download. STEP output matches native kicad-cli.
+**Verification**: TypeScript types compile. JS wrapper functions work in tests.
 
 ---
 
-## Stage 8: Component 3D Model Support
+## Stage 6: Integration Tests and Edge Cases
 
-**Goal**: Enable component 3D model loading in the WASM STEP export.
+**Goal**: Comprehensive tests covering real-world configuration scenarios.
 
-- [x] 8a: Design the model resolution API for WASM:
-  ```javascript
-  // Upload model files to virtual FS
-  Module.ccall('kicad_upload_3d_model', 'number', ['string', 'array', 'number'],
-      ['Package_SO.3dshapes/SOIC-8.step', modelData, modelData.length]);
-  // Or use Module.FS.writeFile('/models/Package_SO.3dshapes/SOIC-8.step', modelData);
+- [ ] 6a: Test: manufacturer rule sets — JLCPCB, OSH Park, PCBWay minimum specs
+  - Create JSON configs matching each manufacturer's DRC rules
+  - Verify same PCB passes/fails differently per manufacturer
+- [ ] 6b: Test: configuration persistence — verify settings reset when loading a new PCB
+- [ ] 6c: Test: invalid JSON handling — malformed JSON, unknown fields, out-of-range values
+- [ ] 6d: Test: partial configuration — only overriding some fields, rest keep PCB defaults
+- [ ] 6e: Test: netclass priority — when a net has multiple netclass assignments, verify the correct precedence
+- [ ] 6f: Add `npm run test:drc-config` and `npm run test:erc-config` scripts to package.json
 
-  // Set model directory + export with components
-  const options = {
-      export_components: true,
-      model_dir: "/models"   // sets KICAD*_3DMODEL_DIR env var
-  };
-  ```
-- [x] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
-- [x] 8c: Test with a PCB that has component models
-- [x] 8d: Add model preloading to the browser demo
-
-**Verification**: STEP export with components matches native kicad-cli output including 3D models.
+**Verification**: All manufacturer configs produce expected results. Edge cases handled gracefully.
 
 ---
 
-## Build Size Budget
+## Key Implementation Notes
 
-| Component | Estimated Size |
-|-----------|---------------|
-| Current WASM (DRC+ERC) | 9.6 MB |
-| OCCT core (TKernel through TKBool) | ~15-20 MB |
-| OCCT STEP I/O + XDE | ~10-15 MB |
-| KiCad exporter code | ~0.5 MB |
-| **Total estimated** | **35-45 MB** |
-| Brotli compressed | ~8-12 MB |
+1. **Unit conversion**: All JSON values in mm. Convert via `pcbIUScale.mmToIU(value)` which multiplies by 1e6 (KiCad uses nanometers internally).
 
-This replaces the current 9.6 MB (KiCad) + 63 MB (opencascade.js) = 72.6 MB total with a single ~40 MB binary.
+2. **Timing**: Configuration must happen AFTER `kicad_load_pcb()` (board must exist) and BEFORE `kicad_run_drc()`. The configure function modifies the in-memory BOARD's settings directly.
 
----
+3. **Netclass sync**: After modifying netclasses or assignments, call `g_board->SynchronizeNetsAndNetClasses(false)` to propagate changes to all pads/tracks/vias.
 
-## Key Risks and Mitigations
+4. **DRC engine re-init**: The DRC engine builds implicit rules from design settings and netclasses during `InitEngine()`. If `kicad_configure_drc` is called, the DRC engine must be re-initialized before the next `kicad_run_drc()` call to pick up changes.
 
-| Risk | Mitigation |
-|------|------------|
-| OCCT platform code won't compile with Emscripten | opencascade.js proves it's possible; reference their patches |
-| OCCT compile time too long (hours) | Cache `.a` static libraries; only recompile when OCCT version changes |
-| Binary size too large | Aggressively strip unused modules; `-O3 -flto` dead code elimination |
-| KiCad exporter has dependencies we haven't compiled | Stub incrementally; the exporter's core path is well-bounded |
-| 3D model loading requires file I/O | Use Emscripten virtual FS; provide models via JS before export |
-| STEP output differs from native | Same code + same OCCT version = same output; any differences are bugs to fix |
+5. **ERC settings access**: ERC settings are on the SCHEMATIC object, not the BOARD. Access via `g_schematic->ErcSettings()`.
+
+6. **Severity map**: Both DRC and ERC use `std::map<int, SEVERITY>` for severity overrides. The key is the error code enum value. The WASM API maps human-readable string names to enum values for usability.
+
+7. **Optional fields**: All JSON fields are optional. Only specified fields are overridden. This allows incremental configuration on top of PCB-embedded defaults.

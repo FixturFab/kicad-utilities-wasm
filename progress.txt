@@ -1,129 +1,44 @@
-## Native STEP Export via WASM — Implementation Progress
+## DRC/ERC JSON Configuration API — Implementation Progress
 
-### Stage 1: Download and Configure OCCT 7.6.3 Source for Emscripten
-- Downloaded OCCT 7.6.3 source from GitHub (Open-Cascade-SAS/OCCT V7_6_3 tag)
-- Extracted to kicad-drc-wasm/thirdparty/occt-7.6.3/ (verified v7.6.3 in Standard_Version.hxx)
-- Removed tarball to save space
-- 1b: Module list verified against adm/MODULES and src/*/PACKAGES — all toolkits exist in source
-- 1c: Created thirdparty/occt-emscripten.cmake with occt_add_toolkit() function that reads PACKAGES files and collects .cxx sources
-- OCCT 7.6.3 already has native __EMSCRIPTEN__ support in OSD, Standard, etc. — fewer stubs needed than expected
-- 1d: Tested OCCT header compilation with emcc — both basic (gp_Pnt, BRepPrimAPI) and STEP (STEPCAFControl_Writer, XCAFApp_Application, XCAFDoc_*) headers compile cleanly with em++ -std=c++17 -fexceptions
+### Stage 1: DRC Design Settings Override
+- Added kicad_configure_drc(const char* json_config) to api.cpp — parses design_settings JSON, applies all 17 fields to BOARD_DESIGN_SETTINGS with mm→IU conversion
+- Added kicad_configure_drc declaration to include/kicad_drc_api.h
+- Added _kicad_configure_drc to EXPORTED_FUNCTIONS in CMakeLists.txt
+- Resets DRC engine after config changes to force re-init on next run
+- Build verified: compiles and links successfully
+- Created samples/drc-config-test.kicad_pcb with tracks at 0.1/0.15/0.2/0.25mm widths, vias at 0.4/0.5/0.6mm, clearance pairs at 0.1mm/0.15mm gaps, edge clearance at 0.1mm
+- Removed s-expression comments (;; syntax not supported by KiCad parser)
+- Verified PCB loads and DRC runs: default=26, strict=29, relaxed=16 violations
+- Created test/test-drc-config.mjs: 28 assertions covering 8 test scenarios
+  - Default DRC, relaxed config, strict config, 3 different violation counts
+  - Error handling (no board, invalid JSON), partial config, empty config
 
-### Stage 2: Compile OCCT Core Modules to WASM Static Libraries
-- 2a: Added `include(thirdparty/occt-emscripten.cmake)` to CMakeLists.txt EMSCRIPTEN section
-- 2a: Fixed OSD_signal.cxx FPE errors: global `__linux__` define clashed with OCCT's platform detection; added `-U__linux__` to OCCT toolkit compile options
-- 2a: TKernel compiled (4.4MB .a), TKMath compiled (8.4MB .a) — both clean, only deprecation warnings
-- 2c: TKG2d compiled (1.5MB), TKG3d compiled (4.0MB), TKGeomBase compiled (15MB), TKBRep compiled (4.0MB) — all clean, only minor warnings
-- 2d: TKGeomAlgo compiled (18MB), TKTopAlgo compiled (9.5MB), TKShHealing compiled (8.9MB) — all clean
-- 2e: TKBool compiled (15MB), TKBO compiled (8.9MB), TKPrim compiled (1.4MB), TKFillet compiled (8.2MB) — all clean
-- 2e+: TKOffset, TKFeat, TKHLR, TKMesh, TKXMesh also compiled clean
-- 2f: Boolean cut test (box - cylinder) PASSES under Node.js. Required -sSTACK_SIZE=8388608 (8MB stack). Without assertions, the real error (stack overflow) was masked as a misleading getWasmTableEntry() error. Test created at test/occt_boolean_test.cpp, built as occt_boolean_test.mjs
+### Stage 2: Netclass Configuration
+- Added #include for netclass.h, project/net_settings.h, eda_pattern_match.h
+- Added netclass parsing to kicad_configure_drc: creates/modifies netclasses with all 9 fields (clearance, track_width, via_diameter, via_drill, microvia_diameter, microvia_drill, diff_pair_width, diff_pair_gap, diff_pair_via_gap)
+- Added netclass_assignments parsing: maps net names to netclass sets via SetNetclassLabelAssignment
+- Added netclass_patterns parsing: maps wildcard patterns to netclasses via SetNetclassPatternAssignment
+- Added SynchronizeNetsAndNetClasses(false) call after any netclass changes
+- Build verified: compiles and links successfully with no errors
+- Fixed SynchronizeNetsAndNetClasses: board has no m_project in WASM, so manually iterate nets and assign effective netclasses via net->SetNetClass(netSettings->GetEffectiveNetClass(...))
+- Created samples/netclass-test.kicad_pcb: GND/VCC/SIG nets, 0.2mm tracks, two close pairs with 0.15mm edge-to-edge gaps
+- Created test/test-netclass-config.mjs: 22 assertions covering 7 test scenarios
+  - Baseline (relaxed Default → 0 clearance violations)
+  - Power netclass high clearance → 1 violation (VCC-GND pair)
+  - Power netclass low clearance → 0 violations
+  - Both VCC+GND assigned to Power → 2 violations
+  - Pattern-based assignment → 1 violation
+  - Default netclass override → 2 violations
+  - Violation count difference verification
 
-### Stage 3: Compile OCCT STEP I/O and Application Framework Modules
-- 3a: TKXSBase (11MB), TKSTEPBase (15MB), TKSTEPAttr (9.5MB), TKSTEP209 (3.2MB), TKSTEP (12MB) — all compiled clean
-- 3b: TKCDF (1.2MB), TKLCAF (3.8MB), TKCAF (2.1MB), TKTObj (844K) — all compiled clean
-- 3c: TKXCAF (3.2MB), TKXDESTEP (1.7MB) — compiled clean
-- 3d: All remaining modules compiled clean:
-  - TKBinL (1.3MB), TKBin (456K), TKBinTObj (212K), TKBinXCAF (496K)
-  - TKIGES (18MB), TKXDEIGES (196K)
-  - TKService (4.1MB), TKV3d (14MB)
-  - TKSTL (244K), TKVRML (2.2MB), TKRWMesh (1.4MB)
-  - Previously compiled: TKOffset, TKFeat, TKHLR, TKMesh, TKXMesh
-  - Added TKVCAF toolkit (provides TPrsStd_DriverTable, needed by TKXCAF)
-  - Fixed occt-emscripten.cmake to also collect .c and .cpp files (was missing Resource_ConvertUnicode.c and delabella.cpp)
-- 3e: STEP write validation test PASSES under Node.js
-  - Test creates XDE document with colored box, writes STEP via STEPCAFControl_Writer
-  - Output: 15,875 bytes, 361 STEP entities, ISO-10303-21 header verified
-  - PRODUCT entities and COLOUR_RGB data confirmed in output
-  - Test file: test/occt_step_write_test.cpp, built as occt_step_write_test.mjs
+### Stage 3: DRC Severity Configuration
+- (not started)
 
-### Stage 4: Integrate KiCad's STEP Exporter Source Files
-- 4a: Added OCCT_INCLUDE_DIRS to KICAD_INCLUDE_DIRS via list(APPEND) after occt-emscripten.cmake include
-- 4b: step_exporter_wasm target already existed in CMakeLists.txt with 4 exporter files + filename_resolver
-  - Removed streamwrapper.cpp (Windows+GCC only, has #error guard)
-  - Added -sUSE_ZLIB=1 compile option for gzip-hpp dependency
-  - Added wxString::erase(iterator) overloads for filename_resolver.cpp
-  - Added wxString::ToAscii() stub
-  - Added wxStringOutputStream stub to sstream.h
-  - Added wxStdOutputStream/wxStdOutputStreamBuffer stubs to stream.h
-  - Added wxInputStream::Read(wxOutputStream&) with proper forward decl + out-of-line def
-  - Added wxFileOutputStream::Close(), wxFileInputStream using-decl
-  - Added wxZLIB_GZIP/wxZLIB_ZLIB/wxZLIB_NO_HEADER constants
-  - Updated wxZlibOutputStream stub with 3-arg ctor and Close()
-  - Added wxInvalidOffset constant
-  - Added wxFFileInputStream::Reset() and SeekI() methods
-  - Added wxZipInputStream::CanRead() stub
-  - Added wxRenameFile 3-arg overload (with overwrite bool)
-  - step_exporter_wasm compiles clean (only deprecation/template warnings)
-- 4e: Linked step_exporter_wasm + all OCCT static libraries into kicad_drc
-  - Added step_exporter_wasm and ${OCCT_LIBRARIES} to target_link_libraries
-  - Added -sUSE_ZLIB=1 to kicad_drc link flags
-  - Linked with zero errors — no missing symbols
-  - Binary size: 9.6 MB (unchanged — LTO strips unused OCCT code since no API calls exporter yet)
-  - All 155 existing ERC tests pass
-- 4f: OCCT libraries already linked as part of 4e (via ${OCCT_LIBRARIES} variable)
+### Stage 4: ERC Configuration
+- (not started)
 
-### Stage 5: Add _kicad_export_step() API Function
-- 5a-d: kicad_export_step() already implemented in api.cpp from Stage 4 work (JSON options parsing, STEP file I/O, error handling)
-- 5b: _kicad_export_step already in EXPORTED_FUNCTIONS list
-- Fixed link errors: guarded WriteU3D/WritePDF in step_pcb_model.cpp with #ifdef __EMSCRIPTEN__ (U3D/PDF export not needed in WASM)
-- Added step_export_stubs.cpp with EXPORTER_STEP_PARAMS::GetDefaultExportExtension() and GetFormatName() (avoids pulling in job_export_pcb_3d.cpp dependencies)
-- Fixed wxGetCwd/wxSetWorkingDirectory stubs (were no-ops) — WriteSTEP changes CWD then writes temp file, so actual chdir/getcwd needed in WASM
-- 5a-5d VERIFIED: test/test-native-step.mjs passes all 10 assertions — loads PCB, exports STEP (18,388 bytes, 455 entities), ISO-10303-21 header confirmed
-- 5e: Board-only export works (m_BoardOnly=true default); component 3D model support deferred to Stage 8
-- 5f: TypeScript types added to types/kicad-wasm.d.ts
+### Stage 5: TypeScript Types and Node.js API
+- (not started)
 
-### Stage 6: Parity Testing
-- 6a: Created test/test-step-native-parity.mjs — 22 assertions, all pass
-  - parity-test.kicad_pcb: 425 entities, 40 types — IDENTICAL between WASM and native
-  - sample.kicad_pcb: 185 entities, 38 types — IDENTICAL between WASM and native
-  - Level 2 (entity type counts): PERFECT parity
-  - Level 1 (byte-for-byte): Diffs only in PRODUCT names (output filename) and Z-coordinates
-  - Z-diff: WASM (v9.99) top=1.51mm, native (v8.0.9) top=1.6mm — KiCad version diff in stackup calc
-  - Also includes normalizeStepFile(), parseStepEntities(), compareEntityMaps() utilities (covers 6c)
-
-### Stage 7: Browser Integration and Demo Page Update
-- 7a: Updated public/step.html — removed entire StepBuilder class (~250 lines), opencascade.js loading, ___cxa stubs
-  - STEP export now uses Module.ccall('kicad_export_step') — no 63MB opencascade.js download
-  - 3D preview uses THREE.js ExtrudeGeometry from geometry JSON instead of OCCT tessellation
-  - Board stays loaded (removed premature _kicad_cleanup) so STEP export can reuse it
-  - Footer updated to credit OCCT 7.6.3 instead of opencascade.js
-- 7b: Generate STEP button now calls Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson])
-- 7c: 3D preview uses THREE.js ExtrudeGeometry from geometry JSON (no opencascade.js needed)
-- 7d: Removed opencascade.js from package.json dependencies
-- 7e: Added exportStepNative() to src/step-export/index.mjs; old exportPcbToStep marked @deprecated
-- 7f: All tests pass — 155 ERC + 10 native STEP + 22 parity = 187 assertions
-
-### Stage 8: Component 3D Model Support
-- 8a: Added kicad_set_3d_model_dir() and kicad_upload_3d_model() C API functions to api.cpp
-- 8a: Added model_dir option to kicad_export_step() JSON options — sets KICAD*_3DMODEL_DIR env var
-- 8a: Auto-configure: when export_components=true, board_only defaults to false
-- 8a: Added _kicad_set_3d_model_dir and _kicad_upload_3d_model to EXPORTED_FUNCTIONS in CMakeLists.txt
-- 8a: Updated types/kicad-wasm.d.ts with new API functions and model_dir option
-- 8a: Updated src/step-export/index.mjs with upload3DModel(), set3DModelDir(), exportStepWithModels()
-- 8a: Build succeeds, binary relinked (35.8MB WASM)
-- 8a: All existing tests pass: 155 ERC + 10 STEP + 22 parity = 187 assertions
-- 8a: VERIFIED: new exports kicad_set_3d_model_dir and kicad_upload_3d_model present in JS glue
-- 8b: Fixed wxFileName::Mkdir — now supports wxPATH_MKDIR_FULL (recursive directory creation)
-- 8b: Diagnosed predefinedEnvVars static init issue — vector is empty (count=0) in WASM/LTO due to static initialization order fiasco
-- 8b: Fixed kicad_set_3d_model_dir to set all KICAD6/7/8/9_3DMODEL_DIR + KISYS3DMOD env vars for cross-version PCB compatibility
-- 8b: FILENAME_RESOLVER works in WASM — ExpandEnvVarSubstitutions resolves ${KICAD8_3DMODEL_DIR} via getenv(), wxFileName::FileExists checks Emscripten VFS
-- 8b: VERIFIED: test-3d-model.mjs passes 9/9 — both R1 and R2 components resolved, 3 PRODUCT + 3 NAUO in output
-- 8b: Entity count diff (WASM=1024 vs native=1233) is KiCad version difference: v9.99 deduplicates PRODUCT defs for identical models, v8.0.9 creates separate ones; styling entities also deduplicated
-- 8b: Updated test to make native comparison informational (not hard assertion) since version diff is expected
-- 8b: All tests pass: 155 ERC + 10 STEP + 22 parity + 9 3D model = 196 assertions
-- 8c: Added test:3d-model script to package.json
-- 8c: VERIFIED: test-3d-model.mjs passes 9/9 — loads model-test.kicad_pcb with 2 SMD resistors, uploads R_0402_1005Metric.step model, exports with components
-- 8c: Board-only baseline: 202 entities; with models: 1024 entities (3 PRODUCT, 3 NAUO)
-- 8c: Native comparison: WASM=1024 entities vs native=1233 entities (version diff documented)
-- 8c: All tests pass: 155 ERC + 10 STEP + 22 parity + 9 3D model = 196 assertions
-- 8d: Updated public/step.html with 3D model preloading UI
-- 8d: Added model detection — scans geometry JSON components[].models[] for referenced 3D models
-- 8d: Added stripEnvVar() to extract relative path from ${KICAD8_3DMODEL_DIR}/... filenames
-- 8d: Added model upload panel with drag-and-drop + file picker for .step/.wrl files
-- 8d: Model matching by basename — uploaded files matched to required model paths
-- 8d: Added "Include 3D components" checkbox (enabled when models are uploaded)
-- 8d: Generate STEP button passes export_components + model_dir when checkbox is checked
-- 8d: Model list shows status dots (gray=pending, green=loaded) and upload progress summary
-- 8d: Clear button resets model state (requiredModels map + uploadedModelCount)
-- 8d: All existing tests still pass: 10 STEP + 9 3D model = 19 assertions verified
+### Stage 6: Integration Tests and Edge Cases
+- (not started)

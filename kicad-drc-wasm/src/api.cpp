@@ -40,6 +40,10 @@
 #include <layer_ids.h>
 #include <lset.h>
 #include <nlohmann/json.hpp>
+#include <netclass.h>
+#include <project/net_settings.h>
+#include <eda_pattern_match.h>
+#include <netinfo.h>
 
 // KiCad headers - ERC
 #include <schematic.h>
@@ -151,6 +155,205 @@ int kicad_load_pcb( const char* pcb_content, size_t length )
     catch( const std::exception& e )
     {
         fprintf( stderr, "PCB parse error: %s\n", e.what() );
+        return -4;
+    }
+}
+
+int kicad_configure_drc( const char* json_config )
+{
+    if( !g_board )
+        return -1;
+
+    if( !json_config )
+        return -2;
+
+    try
+    {
+        nlohmann::json config = nlohmann::json::parse( json_config );
+        BOARD_DESIGN_SETTINGS& bds = g_board->GetDesignSettings();
+
+        // Apply design_settings overrides
+        if( config.contains( "design_settings" ) )
+        {
+            const auto& ds = config["design_settings"];
+
+            if( ds.contains( "min_clearance_mm" ) )
+                bds.m_MinClearance = pcbIUScale.mmToIU( ds["min_clearance_mm"].get<double>() );
+
+            if( ds.contains( "min_track_width_mm" ) )
+                bds.m_TrackMinWidth = pcbIUScale.mmToIU( ds["min_track_width_mm"].get<double>() );
+
+            if( ds.contains( "min_via_diameter_mm" ) )
+                bds.m_ViasMinSize = pcbIUScale.mmToIU( ds["min_via_diameter_mm"].get<double>() );
+
+            if( ds.contains( "min_via_drill_mm" ) )
+                bds.m_MinThroughDrill = pcbIUScale.mmToIU( ds["min_via_drill_mm"].get<double>() );
+
+            if( ds.contains( "min_microvia_diameter_mm" ) )
+                bds.m_MicroViasMinSize = pcbIUScale.mmToIU( ds["min_microvia_diameter_mm"].get<double>() );
+
+            if( ds.contains( "min_microvia_drill_mm" ) )
+                bds.m_MicroViasMinDrill = pcbIUScale.mmToIU( ds["min_microvia_drill_mm"].get<double>() );
+
+            if( ds.contains( "min_hole_to_hole_mm" ) )
+                bds.m_HoleToHoleMin = pcbIUScale.mmToIU( ds["min_hole_to_hole_mm"].get<double>() );
+
+            if( ds.contains( "hole_clearance_mm" ) )
+                bds.m_HoleClearance = pcbIUScale.mmToIU( ds["hole_clearance_mm"].get<double>() );
+
+            if( ds.contains( "copper_edge_clearance_mm" ) )
+                bds.m_CopperEdgeClearance = pcbIUScale.mmToIU( ds["copper_edge_clearance_mm"].get<double>() );
+
+            if( ds.contains( "silk_clearance_mm" ) )
+                bds.m_SilkClearance = pcbIUScale.mmToIU( ds["silk_clearance_mm"].get<double>() );
+
+            if( ds.contains( "min_silk_text_height_mm" ) )
+                bds.m_MinSilkTextHeight = pcbIUScale.mmToIU( ds["min_silk_text_height_mm"].get<double>() );
+
+            if( ds.contains( "min_silk_text_thickness_mm" ) )
+                bds.m_MinSilkTextThickness = pcbIUScale.mmToIU( ds["min_silk_text_thickness_mm"].get<double>() );
+
+            if( ds.contains( "min_resolved_spokes" ) )
+                bds.m_MinResolvedSpokes = ds["min_resolved_spokes"].get<int>();
+
+            if( ds.contains( "min_annular_width_mm" ) )
+                bds.m_ViasMinAnnularWidth = pcbIUScale.mmToIU( ds["min_annular_width_mm"].get<double>() );
+
+            if( ds.contains( "solder_mask_expansion_mm" ) )
+                bds.m_SolderMaskExpansion = pcbIUScale.mmToIU( ds["solder_mask_expansion_mm"].get<double>() );
+
+            if( ds.contains( "solder_mask_min_width_mm" ) )
+                bds.m_SolderMaskMinWidth = pcbIUScale.mmToIU( ds["solder_mask_min_width_mm"].get<double>() );
+
+            if( ds.contains( "solder_mask_to_copper_clearance_mm" ) )
+                bds.m_SolderMaskToCopperClearance = pcbIUScale.mmToIU( ds["solder_mask_to_copper_clearance_mm"].get<double>() );
+        }
+
+        // Apply netclass overrides
+        if( config.contains( "netclasses" ) )
+        {
+            std::shared_ptr<NET_SETTINGS> netSettings = bds.m_NetSettings;
+            const auto& ncs = config["netclasses"];
+
+            for( auto it = ncs.begin(); it != ncs.end(); ++it )
+            {
+                wxString ncName = wxString::FromUTF8( it.key().c_str() );
+                const auto& ncJson = it.value();
+
+                std::shared_ptr<NETCLASS> nc;
+
+                if( ncName == NETCLASS::Default )
+                {
+                    nc = netSettings->GetDefaultNetclass();
+                }
+                else
+                {
+                    if( netSettings->HasNetclass( ncName ) )
+                    {
+                        const auto& existing = netSettings->GetNetclasses();
+                        nc = existing.at( ncName );
+                    }
+                    else
+                    {
+                        nc = std::make_shared<NETCLASS>( ncName, false );
+                        netSettings->SetNetclass( ncName, nc );
+                    }
+                }
+
+                if( ncJson.contains( "clearance_mm" ) )
+                    nc->SetClearance( pcbIUScale.mmToIU( ncJson["clearance_mm"].get<double>() ) );
+
+                if( ncJson.contains( "track_width_mm" ) )
+                    nc->SetTrackWidth( pcbIUScale.mmToIU( ncJson["track_width_mm"].get<double>() ) );
+
+                if( ncJson.contains( "via_diameter_mm" ) )
+                    nc->SetViaDiameter( pcbIUScale.mmToIU( ncJson["via_diameter_mm"].get<double>() ) );
+
+                if( ncJson.contains( "via_drill_mm" ) )
+                    nc->SetViaDrill( pcbIUScale.mmToIU( ncJson["via_drill_mm"].get<double>() ) );
+
+                if( ncJson.contains( "microvia_diameter_mm" ) )
+                    nc->SetuViaDiameter( pcbIUScale.mmToIU( ncJson["microvia_diameter_mm"].get<double>() ) );
+
+                if( ncJson.contains( "microvia_drill_mm" ) )
+                    nc->SetuViaDrill( pcbIUScale.mmToIU( ncJson["microvia_drill_mm"].get<double>() ) );
+
+                if( ncJson.contains( "diff_pair_width_mm" ) )
+                    nc->SetDiffPairWidth( pcbIUScale.mmToIU( ncJson["diff_pair_width_mm"].get<double>() ) );
+
+                if( ncJson.contains( "diff_pair_gap_mm" ) )
+                    nc->SetDiffPairGap( pcbIUScale.mmToIU( ncJson["diff_pair_gap_mm"].get<double>() ) );
+
+                if( ncJson.contains( "diff_pair_via_gap_mm" ) )
+                    nc->SetDiffPairViaGap( pcbIUScale.mmToIU( ncJson["diff_pair_via_gap_mm"].get<double>() ) );
+            }
+        }
+
+        // Apply netclass label assignments (net name → netclass list)
+        if( config.contains( "netclass_assignments" ) )
+        {
+            std::shared_ptr<NET_SETTINGS> netSettings = bds.m_NetSettings;
+            const auto& assignments = config["netclass_assignments"];
+
+            for( auto it = assignments.begin(); it != assignments.end(); ++it )
+            {
+                wxString netName = wxString::FromUTF8( it.key().c_str() );
+                std::set<wxString> ncSet;
+
+                for( const auto& ncName : it.value() )
+                    ncSet.insert( wxString::FromUTF8( ncName.get<std::string>().c_str() ) );
+
+                netSettings->SetNetclassLabelAssignment( netName, ncSet );
+            }
+        }
+
+        // Apply netclass pattern assignments (wildcard/regex → netclass)
+        if( config.contains( "netclass_patterns" ) )
+        {
+            std::shared_ptr<NET_SETTINGS> netSettings = bds.m_NetSettings;
+            const auto& patterns = config["netclass_patterns"];
+
+            for( const auto& entry : patterns )
+            {
+                if( entry.contains( "pattern" ) && entry.contains( "netclass" ) )
+                {
+                    wxString pattern = wxString::FromUTF8( entry["pattern"].get<std::string>().c_str() );
+                    wxString netclass = wxString::FromUTF8( entry["netclass"].get<std::string>().c_str() );
+                    netSettings->SetNetclassPatternAssignment( pattern, netclass );
+                }
+            }
+        }
+
+        // Synchronize nets with netclass changes.
+        // BOARD::SynchronizeNetsAndNetClasses requires m_project which is not set in
+        // WASM standalone mode. We replicate its logic here by manually iterating nets
+        // and assigning effective netclasses from NET_SETTINGS.
+        bool hasNetclassChanges = config.contains( "netclasses" )
+                                || config.contains( "netclass_assignments" )
+                                || config.contains( "netclass_patterns" );
+
+        if( hasNetclassChanges )
+        {
+            std::shared_ptr<NET_SETTINGS> netSettings = bds.m_NetSettings;
+            netSettings->ClearAllCaches();
+
+            for( NETINFO_ITEM* net : g_board->GetNetInfo() )
+                net->SetNetClass( netSettings->GetEffectiveNetClass( net->GetNetname() ) );
+        }
+
+        // Force DRC engine re-init on next run to pick up changed settings
+        bds.m_DRCEngine.reset();
+
+        return 0;
+    }
+    catch( const nlohmann::json::exception& e )
+    {
+        fprintf( stderr, "DRC config JSON error: %s\n", e.what() );
+        return -3;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "DRC config error: %s\n", e.what() );
         return -4;
     }
 }
