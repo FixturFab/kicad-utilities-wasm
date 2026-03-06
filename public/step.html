@@ -60,6 +60,73 @@
             font-size: 0.85rem;
             pointer-events: none;
         }
+        .models-list {
+            list-style: none;
+            padding: 0;
+            margin: 0.5rem 0;
+        }
+        .models-list li {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.5rem;
+            background: var(--bg);
+            border-radius: 6px;
+            margin-bottom: 0.25rem;
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+        .model-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .model-status.pending { background: var(--text-muted); }
+        .model-status.loaded { background: #22c55e; }
+        .model-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .model-drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s;
+            margin-top: 0.5rem;
+        }
+        .model-drop-zone:hover,
+        .model-drop-zone.dragover {
+            border-color: var(--primary);
+        }
+        .model-drop-zone p {
+            margin: 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        .model-summary {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+        }
+        .export-options {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .export-options label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
     </style>
     <script type="importmap">
     {
@@ -133,6 +200,23 @@
                 </div>
             </div>
 
+            <div id="models-card" style="display: none; margin-top: 1rem; padding: 0.75rem; background: var(--bg); border-radius: 8px;">
+                <h3 style="font-size: 1rem; margin: 0 0 0.5rem;">3D Component Models</h3>
+                <ul class="models-list" id="models-list"></ul>
+                <div class="model-drop-zone" id="model-drop-zone">
+                    <p>Drop .step / .wrl model files here, or click to browse</p>
+                    <input type="file" id="model-file-input" accept=".step,.stp,.wrl" multiple style="display: none;">
+                </div>
+                <div class="model-summary" id="model-summary"></div>
+            </div>
+
+            <div class="export-options" id="export-options" style="display: none;">
+                <label>
+                    <input type="checkbox" id="include-components" disabled>
+                    Include 3D components
+                </label>
+            </div>
+
             <div class="btn-group">
                 <button class="btn btn-primary" id="generate-step-2" disabled>Generate STEP</button>
                 <button class="btn btn-secondary" id="download-step" disabled style="display: none;">Download .step</button>
@@ -179,6 +263,10 @@
         let boardLoaded = false;
         let scene, camera, renderer, controls;
 
+        // 3D model state: Map<uniqueModelBasename, { virtualPath, loaded }>>
+        let requiredModels = new Map();
+        let uploadedModelCount = 0;
+
         // ── DOM refs ──
         const dropZone = document.getElementById('drop-zone');
         const fileInput = document.getElementById('file-input');
@@ -199,6 +287,13 @@
         const toggleJson = document.getElementById('toggle-json');
         const jsonContainer = document.getElementById('json-container');
         const jsonOutput = document.getElementById('json-output');
+        const modelsCard = document.getElementById('models-card');
+        const modelsList = document.getElementById('models-list');
+        const modelDropZone = document.getElementById('model-drop-zone');
+        const modelFileInput = document.getElementById('model-file-input');
+        const modelSummary = document.getElementById('model-summary');
+        const exportOptions = document.getElementById('export-options');
+        const includeComponentsCb = document.getElementById('include-components');
 
         // ── KiCad WASM loading ──
         if (typeof SharedArrayBuffer === 'undefined') {
@@ -286,6 +381,8 @@
             currentPcbContent = null;
             geometryData = null;
             stepData = null;
+            requiredModels.clear();
+            uploadedModelCount = 0;
             fileInput.value = '';
             fileInfo.style.display = 'none';
             dropZone.style.display = 'block';
@@ -294,6 +391,8 @@
             jsonSection.style.display = 'none';
             generateStepBtn.style.display = 'none';
             downloadStepBtn.style.display = 'none';
+            modelsCard.style.display = 'none';
+            exportOptions.style.display = 'none';
         });
 
         useSampleBtn.addEventListener('click', async () => {
@@ -345,6 +444,7 @@
                 boardLoaded = true;
 
                 displayStats(geometryData);
+                extractRequiredModels(geometryData);
             } catch (err) {
                 console.error('Geometry extraction failed:', err);
                 alert('Failed to extract geometry: ' + err.message);
@@ -391,6 +491,126 @@
             div.textContent = text || '';
             return div.innerHTML;
         }
+
+        // ── 3D Model management ──
+
+        // Extract env-var-relative path from a model filename.
+        // e.g. "${KICAD8_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0402_1005Metric.step"
+        //   -> "Resistor_SMD.3dshapes/R_0402_1005Metric.step"
+        function stripEnvVar(filename) {
+            return filename.replace(/^\$\{[^}]+\}\//, '');
+        }
+
+        function extractRequiredModels(geo) {
+            requiredModels.clear();
+            uploadedModelCount = 0;
+
+            for (const comp of (geo.components || [])) {
+                for (const model of (comp.models || [])) {
+                    const virtualPath = stripEnvVar(model.filename);
+                    if (!requiredModels.has(virtualPath)) {
+                        requiredModels.set(virtualPath, { loaded: false });
+                    }
+                }
+            }
+
+            if (requiredModels.size === 0) {
+                modelsCard.style.display = 'none';
+                exportOptions.style.display = 'none';
+                return;
+            }
+
+            modelsCard.style.display = 'block';
+            exportOptions.style.display = 'flex';
+            includeComponentsCb.checked = false;
+            includeComponentsCb.disabled = true;
+            renderModelsList();
+        }
+
+        function renderModelsList() {
+            modelsList.innerHTML = '';
+            for (const [path, info] of requiredModels) {
+                const li = document.createElement('li');
+                const dot = document.createElement('span');
+                dot.className = 'model-status ' + (info.loaded ? 'loaded' : 'pending');
+                const name = document.createElement('span');
+                name.className = 'model-name';
+                name.textContent = path;
+                name.title = path;
+                li.appendChild(dot);
+                li.appendChild(name);
+                modelsList.appendChild(li);
+            }
+            modelSummary.textContent = `${uploadedModelCount} of ${requiredModels.size} models loaded`;
+            includeComponentsCb.disabled = uploadedModelCount === 0;
+            if (uploadedModelCount > 0) {
+                includeComponentsCb.checked = true;
+            }
+        }
+
+        // Try to match an uploaded file to a required model by filename
+        function matchModelFile(file) {
+            const fname = file.name.toLowerCase();
+            for (const [path] of requiredModels) {
+                const basename = path.split('/').pop().toLowerCase();
+                if (fname === basename) return path;
+            }
+            return null;
+        }
+
+        async function handleModelFiles(files) {
+            for (const file of files) {
+                const matchedPath = matchModelFile(file);
+                if (!matchedPath) {
+                    console.warn(`No matching model for uploaded file: ${file.name}`);
+                    continue;
+                }
+
+                const data = new Uint8Array(await file.arrayBuffer());
+                const result = Module.ccall(
+                    'kicad_upload_3d_model', 'number',
+                    ['string', 'array', 'number'],
+                    [matchedPath, data, data.length]
+                );
+
+                if (result === 0) {
+                    const info = requiredModels.get(matchedPath);
+                    if (info && !info.loaded) {
+                        info.loaded = true;
+                        uploadedModelCount++;
+                    }
+                    console.log(`Uploaded model: ${matchedPath} (${data.length} bytes)`);
+                } else {
+                    console.error(`Failed to upload model: ${matchedPath}`);
+                }
+            }
+
+            // Set model directory
+            Module.ccall('kicad_set_3d_model_dir', 'number', ['string'], ['/models']);
+            renderModelsList();
+        }
+
+        // Model drop zone events
+        modelDropZone.addEventListener('click', () => modelFileInput.click());
+        modelDropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            modelDropZone.classList.add('dragover');
+        });
+        modelDropZone.addEventListener('dragleave', () => {
+            modelDropZone.classList.remove('dragover');
+        });
+        modelDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            modelDropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0 && Module) {
+                handleModelFiles(e.dataTransfer.files);
+            }
+        });
+        modelFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0 && Module) {
+                handleModelFiles(e.target.files);
+            }
+        });
 
         toggleJson.addEventListener('click', () => {
             const isHidden = jsonContainer.style.display === 'none';
@@ -526,10 +746,12 @@
             const t0 = performance.now();
 
             try {
+                const withComponents = includeComponentsCb.checked && uploadedModelCount > 0;
                 const optionsJson = JSON.stringify({
-                    board_only: true,
+                    board_only: !withComponents,
                     export_board_body: true,
-                    export_components: false,
+                    export_components: withComponents,
+                    ...(withComponents ? { model_dir: '/models' } : {}),
                 });
 
                 const stepContent = Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson]);

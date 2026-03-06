@@ -117,3 +117,13 @@
 - 8c: Board-only baseline: 202 entities; with models: 1024 entities (3 PRODUCT, 3 NAUO)
 - 8c: Native comparison: WASM=1024 entities vs native=1233 entities (version diff documented)
 - 8c: All tests pass: 155 ERC + 10 STEP + 22 parity + 9 3D model = 196 assertions
+- 8d: Updated public/step.html with 3D model preloading UI
+- 8d: Added model detection — scans geometry JSON components[].models[] for referenced 3D models
+- 8d: Added stripEnvVar() to extract relative path from ${KICAD8_3DMODEL_DIR}/... filenames
+- 8d: Added model upload panel with drag-and-drop + file picker for .step/.wrl files
+- 8d: Model matching by basename — uploaded files matched to required model paths
+- 8d: Added "Include 3D components" checkbox (enabled when models are uploaded)
+- 8d: Generate STEP button passes export_components + model_dir when checkbox is checked
+- 8d: Model list shows status dots (gray=pending, green=loaded) and upload progress summary
+- 8d: Clear button resets model state (requiredModels map + uploadedModelCount)
+- 8d: All existing tests still pass: 10 STEP + 9 3D model = 19 assertions verified
