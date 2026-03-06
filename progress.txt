@@ -83,7 +83,16 @@
   - Also includes normalizeStepFile(), parseStepEntities(), compareEntityMaps() utilities (covers 6c)
 
 ### Stage 7: Browser Integration and Demo Page Update
-- (not started)
+- 7a: Updated public/step.html — removed entire StepBuilder class (~250 lines), opencascade.js loading, ___cxa stubs
+  - STEP export now uses Module.ccall('kicad_export_step') — no 63MB opencascade.js download
+  - 3D preview uses THREE.js ExtrudeGeometry from geometry JSON instead of OCCT tessellation
+  - Board stays loaded (removed premature _kicad_cleanup) so STEP export can reuse it
+  - Footer updated to credit OCCT 7.6.3 instead of opencascade.js
+- 7b: Generate STEP button now calls Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson])
+- 7c: 3D preview uses THREE.js ExtrudeGeometry from geometry JSON (no opencascade.js needed)
+- 7d: Removed opencascade.js from package.json dependencies
+- 7e: Added exportStepNative() to src/step-export/index.mjs; old exportPcbToStep marked @deprecated
+- 7f: All tests pass — 155 ERC + 10 native STEP + 22 parity = 187 assertions
 
 ### Stage 8: Component 3D Model Support
 - (not started)

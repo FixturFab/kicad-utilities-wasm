@@ -254,11 +254,11 @@ KiCad WASM (existing: DRC + ERC + geometry)
 
 **Goal**: Update the browser demo page to use the native STEP export instead of the JS reimplementation.
 
-- [ ] 7a: Update `public/step.html` to call `_kicad_export_step()` instead of the JS StepBuilder
+- [x] 7a: Update `public/step.html` to call `_kicad_export_step()` instead of the JS StepBuilder
   - Remove the entire inline StepBuilder class
   - Remove the opencascade.js dependency (no more 63MB WASM download)
   - The STEP export now happens inside the existing KiCad WASM module
-- [ ] 7b: Update the Generate STEP button handler:
+- [x] 7b: Update the Generate STEP button handler:
   ```javascript
   async function generateStep() {
       const optionsJson = JSON.stringify({
@@ -271,10 +271,10 @@ KiCad WASM (existing: DRC + ERC + geometry)
       // Enable download button with stepContent
   }
   ```
-- [ ] 7c: Keep the three.js 3D preview (tessellate the STEP output for display)
-- [ ] 7d: Update `package.json` — remove `opencascade.js` dependency
-- [ ] 7e: Update the step-export module (`src/step-export/index.mjs`) to use the native API
-- [ ] 7f: Run all existing tests to verify no regressions
+- [x] 7c: Keep the three.js 3D preview (tessellate the STEP output for display)
+- [x] 7d: Update `package.json` — remove `opencascade.js` dependency
+- [x] 7e: Update the step-export module (`src/step-export/index.mjs`) to use the native API
+- [x] 7f: Run all existing tests to verify no regressions
 
 **Verification**: Browser demo exports STEP files using the native exporter. No opencascade.js download. STEP output matches native kicad-cli.
 

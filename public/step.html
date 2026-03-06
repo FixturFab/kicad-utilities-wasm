@@ -86,10 +86,7 @@
             <div class="status-group">
                 <div id="kicad-status" class="status loading">
                     <div class="spinner"></div>
-                    <span>Loading KiCad WASM module (9.6 MB)...</span>
-                </div>
-                <div id="occ-status" class="status" style="background: #f1f5f9; color: var(--text-muted);">
-                    <span>opencascade.js &#8212; will load on demand (~63 MB)</span>
+                    <span>Loading KiCad WASM module...</span>
                 </div>
             </div>
 
@@ -158,9 +155,9 @@
 
         <footer>
             <p>
-                Built with <a href="https://www.kicad.org/" target="_blank">KiCad</a>,
-                <a href="https://emscripten.org/" target="_blank">Emscripten</a> &amp;
-                <a href="https://ocjs.org/" target="_blank">opencascade.js</a>
+                Built with <a href="https://www.kicad.org/" target="_blank">KiCad</a> +
+                <a href="https://dev.opencascade.org/" target="_blank">OCCT 7.6.3</a> via
+                <a href="https://emscripten.org/" target="_blank">Emscripten</a>
             </p>
             <p style="margin-top: 0.5rem;">
                 <a href="https://gitlab.com/henrybtroutman/kicad-cli-wasm" target="_blank">View Source</a>
@@ -178,8 +175,8 @@
         let currentPcbContent = null;
         let geometryData = null;
         let currentFileName = 'board';
-        let oc = null;          // opencascade instance (lazy-loaded)
-        let stepData = null;    // Uint8Array of STEP file
+        let stepData = null;    // STEP file string
+        let boardLoaded = false;
         let scene, camera, renderer, controls;
 
         // ── DOM refs ──
@@ -193,7 +190,6 @@
         const fileName = document.getElementById('file-name');
         const clearFileBtn = document.getElementById('clear-file');
         const kicadStatus = document.getElementById('kicad-status');
-        const occStatus = document.getElementById('occ-status');
         const headerWarning = document.getElementById('header-warning');
         const statsCard = document.getElementById('stats-card');
         const viewerCard = document.getElementById('viewer-card');
@@ -283,6 +279,10 @@
         }
 
         clearFileBtn.addEventListener('click', () => {
+            if (boardLoaded && Module) {
+                Module._kicad_cleanup();
+                boardLoaded = false;
+            }
             currentPcbContent = null;
             geometryData = null;
             stepData = null;
@@ -342,8 +342,7 @@
                 const jsonPtr = Module._kicad_get_pcb_geometry();
                 const jsonStr = Module.UTF8ToString(jsonPtr);
                 geometryData = JSON.parse(jsonStr);
-
-                Module._kicad_cleanup();
+                boardLoaded = true;
 
                 displayStats(geometryData);
             } catch (err) {
@@ -399,335 +398,57 @@
             toggleJson.textContent = isHidden ? 'Hide raw JSON' : 'Show raw JSON';
         });
 
-        // ── OpenCascade lazy loading ──
-        // opencascade.js v1.1.1 (older Emscripten build) references ___cxa_can_catch
-        // and ___cxa_is_pointer_type as bare globals for C++ exception handling.
-        // Provide stubs so boolean operations that throw don't crash the runtime.
-        if (typeof globalThis.___cxa_can_catch === 'undefined') {
-            globalThis.___cxa_can_catch = function(catchType, thrownType, adjustedPtr) { return 0; };
-        }
-        if (typeof globalThis.___cxa_is_pointer_type === 'undefined') {
-            globalThis.___cxa_is_pointer_type = function(type) { return 0; };
-        }
+        // ── Build 3D preview from geometry JSON using THREE.js ──
+        function buildPreviewMesh(geo) {
+            const group = new THREE.Group();
+            const thickness = geo.board?.thickness_mm || 1.6;
 
-        async function initOCC() {
-            if (oc) return oc;
-
-            occStatus.className = 'status loading';
-            occStatus.innerHTML = '<div class="spinner"></div><span>Loading opencascade.js (~63 MB)...</span>';
-
-            try {
-                const mod = await import('./opencascade.wasm.js');
-                const factory = mod.default || mod;
-                oc = await factory({
-                    locateFile: (path) => './' + path
-                });
-
-                occStatus.className = 'status success';
-                occStatus.innerHTML = '<span>opencascade.js loaded successfully</span>';
-                return oc;
-            } catch (err) {
-                occStatus.className = 'status error';
-                occStatus.innerHTML = `<span>Failed to load opencascade.js: ${escapeHtml(err.message)}</span>`;
-                throw err;
-            }
-        }
-
-        // ── StepBuilder (browser-adapted from step-builder.mjs) ──
-        class StepBuilder {
-            constructor(ocInstance, geometry) {
-                this.oc = ocInstance;
-                this.geometry = geometry;
-            }
-
-            buildWire(vertices, z = 0) {
-                const oc = this.oc;
-                const wireMaker = new oc.BRepBuilderAPI_MakeWire_1();
-
-                for (let i = 0; i < vertices.length; i++) {
-                    const [x1, y1] = vertices[i];
-                    const [x2, y2] = vertices[(i + 1) % vertices.length];
-                    if (Math.abs(x2 - x1) < 1e-6 && Math.abs(y2 - y1) < 1e-6) continue;
-                    const pt1 = new oc.gp_Pnt_3(x1, y1, z);
-                    const pt2 = new oc.gp_Pnt_3(x2, y2, z);
-                    const edge = new oc.BRepBuilderAPI_MakeEdge_3(pt1, pt2);
-                    wireMaker.Add_1(edge.Edge());
-                }
-
-                return wireMaker.Wire();
-            }
-
-            buildBoardBody() {
-                const oc = this.oc;
-                const { board } = this.geometry;
-                const thickness = board.thickness_mm || 1.6;
-                const polygons = board.outline.polygons;
-
-                if (!polygons || polygons.length === 0) {
-                    throw new Error('No board outline polygons found');
-                }
-
+            // Board body (extruded outline)
+            const polygons = geo.board?.outline?.polygons || [];
+            if (polygons.length > 0) {
                 const firstPoly = polygons[0];
-                const outerWire = this.buildWire(firstPoly.outline, 0);
-                const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(outerWire, true);
-
-                if (firstPoly.holes && firstPoly.holes.length > 0) {
-                    for (const hole of firstPoly.holes) {
-                        if (hole.length >= 3) {
-                            const holeWire = this.buildWire(hole, 0);
-                            faceMaker.Add(holeWire);
-                        }
+                const shape = new THREE.Shape();
+                const pts = firstPoly.outline;
+                if (pts && pts.length >= 3) {
+                    shape.moveTo(pts[0][0], -pts[0][1]);
+                    for (let i = 1; i < pts.length; i++) {
+                        shape.lineTo(pts[i][0], -pts[i][1]);
                     }
-                }
+                    shape.closePath();
 
-                const face = faceMaker.Face();
-                const vec = new oc.gp_Vec_4(0, 0, -thickness);
-                const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
-
-                return prism.Shape();
-            }
-
-            buildHoleCylinder(x, y, radius, z_top, z_bottom) {
-                const oc = this.oc;
-                const height = z_top - z_bottom;
-                const axis = new oc.gp_Ax2_3(
-                    new oc.gp_Pnt_3(x, y, z_bottom),
-                    new oc.gp_Dir_4(0, 0, 1)
-                );
-                const cyl = new oc.BRepPrimAPI_MakeCylinder_3(axis, radius, height);
-                return cyl.Shape();
-            }
-
-            cutDrillHoles(boardShape) {
-                const oc = this.oc;
-                const holes = this.geometry.holes;
-
-                if (!holes || holes.length === 0) {
-                    return boardShape;
-                }
-
-                const thickness = this.geometry.board.thickness_mm || 1.6;
-                const z_top = 0.1;
-                const z_bottom = -(thickness + 0.1);
-
-                const cylinders = [];
-                for (const hole of holes) {
-                    const radius = hole.diameter_mm / 2;
-                    if (radius < 0.01) continue;
-                    cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
-                }
-
-                if (cylinders.length === 0) {
-                    return boardShape;
-                }
-
-                try {
-                    let fusedHoles = cylinders[0];
-                    for (let i = 1; i < cylinders.length; i++) {
-                        const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
-                        fusedHoles = fuse.Shape();
-                    }
-
-                    const cut = new oc.BRepAlgoAPI_Cut_3(boardShape, fusedHoles);
-                    return cut.Shape();
-                } catch (e) {
-                    console.warn('Boolean drill hole cut failed, returning board without holes:', e.message);
-                    return boardShape;
-                }
-            }
-
-            buildCopperLayerSolids(copperLayer) {
-                const oc = this.oc;
-                const z = -copperLayer.z_start_mm;
-                const thickness = copperLayer.thickness_mm || 0.035;
-                const solids = [];
-
-                for (const poly of copperLayer.polygons) {
-                    if (!poly.outline || poly.outline.length < 3) continue;
-
-                    const outerWire = this.buildWire(poly.outline, z);
-                    const faceMaker = new oc.BRepBuilderAPI_MakeFace_15(outerWire, true);
-
-                    if (poly.holes && poly.holes.length > 0) {
-                        for (const hole of poly.holes) {
-                            if (hole.length >= 3) {
-                                const holeWire = this.buildWire(hole, z);
-                                faceMaker.Add(holeWire);
+                    // Add holes
+                    if (firstPoly.holes) {
+                        for (const hole of firstPoly.holes) {
+                            if (hole.length < 3) continue;
+                            const holePath = new THREE.Path();
+                            holePath.moveTo(hole[0][0], -hole[0][1]);
+                            for (let i = 1; i < hole.length; i++) {
+                                holePath.lineTo(hole[i][0], -hole[i][1]);
                             }
+                            holePath.closePath();
+                            shape.holes.push(holePath);
                         }
                     }
 
-                    const face = faceMaker.Face();
-                    const vec = new oc.gp_Vec_4(0, 0, -thickness);
-                    const prism = new oc.BRepPrimAPI_MakePrism_1(face, vec, false, true);
-                    solids.push(prism.Shape());
-                }
-
-                return solids;
-            }
-
-            buildAllCopperLayers() {
-                const copperLayers = this.geometry.copper_layers;
-                if (!copperLayers || copperLayers.length === 0) return [];
-
-                const allSolids = [];
-                for (const layer of copperLayers) {
-                    if (!layer.polygons || layer.polygons.length === 0) continue;
-                    const layerSolids = this.buildCopperLayerSolids(layer);
-                    allSolids.push(...layerSolids);
-                }
-                return allSolids;
-            }
-
-            cutHolesFromCopperSolids(solids) {
-                const oc = this.oc;
-                const holes = this.geometry.holes;
-                if (!holes || holes.length === 0 || solids.length === 0) return solids;
-
-                const boardThickness = this.geometry.board.thickness_mm || 1.6;
-                const cylinders = [];
-                for (const hole of holes) {
-                    const radius = hole.diameter_mm / 2;
-                    if (radius < 0.01) continue;
-                    const z_top = 0.1;
-                    const z_bottom = -(boardThickness + 0.1);
-                    cylinders.push(this.buildHoleCylinder(hole.x_mm, hole.y_mm, radius, z_top, z_bottom));
-                }
-
-                if (cylinders.length === 0) return solids;
-
-                let fusedHoles;
-                try {
-                    fusedHoles = cylinders[0];
-                    for (let i = 1; i < cylinders.length; i++) {
-                        const fuse = new oc.BRepAlgoAPI_Fuse_3(fusedHoles, cylinders[i]);
-                        fusedHoles = fuse.Shape();
-                    }
-                } catch (e) {
-                    console.warn('Fusing hole cylinders failed, skipping copper hole cuts:', e.message);
-                    return solids;
-                }
-
-                return solids.map(solid => {
-                    try {
-                        const cut = new oc.BRepAlgoAPI_Cut_3(solid, fusedHoles);
-                        return cut.Shape();
-                    } catch (e) {
-                        console.warn('Boolean cut failed on copper solid, keeping original:', e.message);
-                        return solid;
-                    }
-                });
-            }
-
-            writeStep(shape) {
-                const oc = this.oc;
-
-                const outDir = '/home/web_user';
-                try { oc.FS.mkdir('/home'); } catch (e) { /* exists */ }
-                try { oc.FS.mkdir(outDir); } catch (e) { /* exists */ }
-
-                const prevCwd = oc.FS.cwd();
-                oc.FS.chdir(outDir);
-
-                const fname = 'out.step';
-                const fpath = outDir + '/' + fname;
-
-                const writer = new oc.STEPControl_Writer_1();
-                writer.Transfer(shape, oc.STEPControl_StepModelType.STEPControl_AsIs, true);
-                writer.Write(fname);
-                writer.delete();
-
-                oc.FS.chdir(prevCwd);
-
-                let data;
-                try {
-                    data = oc.FS.readFile(fpath);
-                } catch (e) {
-                    throw new Error('STEP file was not written to virtual FS');
-                }
-
-                try { oc.FS.unlink(fpath); } catch (e) { /* ignore */ }
-
-                return new Uint8Array(data);
-            }
-
-            buildShape() {
-                const oc = this.oc;
-
-                let boardShape = this.buildBoardBody();
-                boardShape = this.cutDrillHoles(boardShape);
-
-                const copperSolids = this.buildAllCopperLayers();
-
-                if (copperSolids.length === 0) {
-                    return boardShape;
-                }
-
-                const compound = new oc.TopoDS_Compound();
-                const builder = new oc.BRep_Builder();
-                builder.MakeCompound(compound);
-                builder.Add(compound, boardShape);
-                for (const solid of copperSolids) {
-                    builder.Add(compound, solid);
-                }
-
-                return compound;
-            }
-        }
-
-        // ── Tessellation ──
-        function tessellateShape(ocInstance, shape) {
-            new ocInstance.BRepMesh_IncrementalMesh_2(shape, 0.1, false, 0.5, false);
-
-            const vertices = [];
-            const indices = [];
-            let vertexOffset = 0;
-
-            const explorer = new ocInstance.TopExp_Explorer_2(
-                shape,
-                ocInstance.TopAbs_ShapeEnum.TopAbs_FACE,
-                ocInstance.TopAbs_ShapeEnum.TopAbs_SHAPE
-            );
-
-            while (explorer.More()) {
-                const face = ocInstance.TopoDS.Face_1(explorer.Current());
-                const location = new ocInstance.TopLoc_Location_1();
-                const handleTri = ocInstance.BRep_Tool.Triangulation(face, location);
-
-                if (!handleTri.IsNull()) {
-                    const tri = handleTri.get();
-                    const nbNodes = tri.NbNodes();
-                    const nbTriangles = tri.NbTriangles();
-                    const isReversed = face.Orientation_1() === ocInstance.TopAbs_Orientation.TopAbs_REVERSED;
-                    const trsf = location.Transformation();
-
-                    for (let i = 1; i <= nbNodes; i++) {
-                        const pt = tri.Node(i).Transformed(trsf);
-                        vertices.push(pt.X(), pt.Y(), pt.Z());
+                    // Add drill holes as circular paths
+                    for (const h of (geo.holes || [])) {
+                        if (h.diameter_mm < 0.02) continue;
+                        const r = h.diameter_mm / 2;
+                        const holePath = new THREE.Path();
+                        holePath.absarc(h.x_mm, -h.y_mm, r, 0, Math.PI * 2, true);
+                        shape.holes.push(holePath);
                     }
 
-                    for (let i = 1; i <= nbTriangles; i++) {
-                        const triangle = tri.Triangle(i);
-                        let n1 = triangle.Value(1) - 1 + vertexOffset;
-                        let n2 = triangle.Value(2) - 1 + vertexOffset;
-                        let n3 = triangle.Value(3) - 1 + vertexOffset;
-                        if (isReversed) {
-                            indices.push(n1, n3, n2);
-                        } else {
-                            indices.push(n1, n2, n3);
-                        }
-                    }
-
-                    vertexOffset += nbNodes;
+                    const extrudeSettings = { depth: thickness, bevelEnabled: false };
+                    const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                    const mat = new THREE.MeshPhongMaterial({ color: 0x2d8a4e, side: THREE.DoubleSide });
+                    const mesh = new THREE.Mesh(geom, mat);
+                    mesh.rotation.x = Math.PI / 2;
+                    group.add(mesh);
                 }
-
-                explorer.Next();
             }
 
-            return {
-                vertices: new Float32Array(vertices),
-                indices: new Uint32Array(indices)
-            };
+            return group;
         }
 
         // ── Three.js viewer ──
@@ -776,23 +497,8 @@
             });
         }
 
-        function displayMesh(verts, idx) {
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(verts, 3));
-            geometry.setIndex(new THREE.BufferAttribute(idx, 1));
-            geometry.computeVertexNormals();
-
-            const material = new THREE.MeshPhongMaterial({
-                color: 0x2d8a4e,
-                side: THREE.DoubleSide,
-                shininess: 30
-            });
-
-            const mesh = new THREE.Mesh(geometry, material);
-            scene.add(mesh);
-
-            // Fit camera to bounding box
-            const box = new THREE.Box3().setFromObject(mesh);
+        function fitCamera(object) {
+            const box = new THREE.Box3().setFromObject(object);
             const center = box.getCenter(new THREE.Vector3());
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
@@ -809,101 +515,49 @@
             controls.update();
         }
 
-        // ── Generate STEP ──
-        const yieldToUI = () => new Promise(r => setTimeout(r, 0));
-
+        // ── Generate STEP (native export via OCCT 7.6.3 in WASM) ──
         async function generateStep() {
-            if (!geometryData) return;
+            if (!geometryData || !Module || !boardLoaded) return;
 
             generateStepBtn.disabled = true;
             generateStepBtn2.disabled = true;
-            generateStepBtn2.textContent = 'Loading opencascade.js...';
+            generateStepBtn2.textContent = 'Generating STEP...';
 
             const t0 = performance.now();
 
             try {
-                // Lazy-load opencascade.js
-                const ocInstance = await initOCC();
+                const optionsJson = JSON.stringify({
+                    board_only: true,
+                    export_board_body: true,
+                    export_components: false,
+                });
 
-                const builder = new StepBuilder(ocInstance, geometryData);
+                const stepContent = Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson]);
 
-                // Board body
-                generateStepBtn2.textContent = 'Building board body...';
-                await yieldToUI();
-                let t1 = performance.now();
-                let boardShape = builder.buildBoardBody();
-                console.log(`Board body: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
-
-                // Drill holes
-                const holeCount = (geometryData.holes || []).length;
-                generateStepBtn2.textContent = `Cutting ${holeCount} drill holes...`;
-                await yieldToUI();
-                t1 = performance.now();
-                boardShape = builder.cutDrillHoles(boardShape);
-                console.log(`Drill holes (${holeCount}): ${((performance.now() - t1) / 1000).toFixed(1)}s`);
-
-                // Copper layers
-                const copperLayers = geometryData.copper_layers || [];
-                const totalPolys = copperLayers.reduce((s, l) => s + (l.polygons || []).length, 0);
-                generateStepBtn2.textContent = `Building ${totalPolys} copper polygons...`;
-                await yieldToUI();
-                t1 = performance.now();
-                let copperSolids = builder.buildAllCopperLayers();
-                console.log(`Copper polygons (${totalPolys}): ${((performance.now() - t1) / 1000).toFixed(1)}s`);
-
-                // Cut drill holes from copper
-                if (copperSolids.length > 0 && (geometryData.holes || []).length > 0) {
-                    generateStepBtn2.textContent = 'Cutting holes from copper...';
-                    await yieldToUI();
-                    t1 = performance.now();
-                    copperSolids = builder.cutHolesFromCopperSolids(copperSolids);
-                    console.log(`Copper hole cuts: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+                if (!stepContent) {
+                    throw new Error('STEP export returned null — check console for errors');
                 }
 
-                // Assemble compound
-                generateStepBtn2.textContent = 'Assembling compound...';
-                await yieldToUI();
-                let shape;
-                if (copperSolids.length === 0) {
-                    shape = boardShape;
-                } else {
-                    const compound = new ocInstance.TopoDS_Compound();
-                    const bld = new ocInstance.BRep_Builder();
-                    bld.MakeCompound(compound);
-                    bld.Add(compound, boardShape);
-                    for (const solid of copperSolids) {
-                        bld.Add(compound, solid);
-                    }
-                    shape = compound;
-                }
+                stepData = stepContent;
 
-                // Tessellate for 3D preview
-                generateStepBtn2.textContent = 'Tessellating...';
-                await yieldToUI();
-                t1 = performance.now();
-                const { vertices, indices } = tessellateShape(ocInstance, shape);
-                console.log(`Tessellation: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
-
-                // Set up three.js viewer and display
-                viewerCard.style.display = 'block';
-                if (!renderer) {
-                    setupViewer();
-                }
-                displayMesh(vertices, indices);
-
-                // Write STEP file
-                generateStepBtn2.textContent = 'Writing STEP file...';
-                await yieldToUI();
-                t1 = performance.now();
-                stepData = builder.writeStep(shape);
-                console.log(`STEP write: ${((performance.now() - t1) / 1000).toFixed(1)}s`);
+                const totalTime = ((performance.now() - t0) / 1000).toFixed(1);
+                console.log(`STEP export: ${totalTime}s, ${stepContent.length} bytes`);
 
                 // Show download button
                 downloadStepBtn.style.display = 'inline-block';
                 downloadStepBtn.disabled = false;
 
-                const totalTime = ((performance.now() - t0) / 1000).toFixed(1);
-                console.log(`Total STEP generation: ${totalTime}s`);
+                // Build 3D preview from geometry JSON
+                viewerCard.style.display = 'block';
+                if (!renderer) {
+                    setupViewer();
+                }
+                // Clear previous meshes
+                while (scene.children.length > 3) scene.remove(scene.children[scene.children.length - 1]);
+                const previewGroup = buildPreviewMesh(geometryData);
+                scene.add(previewGroup);
+                fitCamera(previewGroup);
+
                 generateStepBtn2.textContent = `Done (${totalTime}s)`;
                 generateStepBtn2.className = 'btn btn-primary';
 
@@ -923,7 +577,7 @@
         downloadStepBtn.addEventListener('click', () => {
             if (!stepData) return;
 
-            const blob = new Blob([stepData], { type: 'application/step' });
+            const blob = new Blob([stepData], { type: 'application/step;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
