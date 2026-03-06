@@ -421,7 +421,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
 
 **Goal**: Comprehensive tests covering real-world configuration scenarios.
 
-- [ ] 6a: Test: manufacturer rule sets — JLCPCB, OSH Park, PCBWay minimum specs
+- [x] 6a: Test: manufacturer rule sets — JLCPCB, OSH Park, PCBWay minimum specs
   - Create JSON configs matching each manufacturer's DRC rules
   - Verify same PCB passes/fails differently per manufacturer
 - [ ] 6b: Test: configuration persistence — verify settings reset when loading a new PCB

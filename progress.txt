@@ -67,4 +67,11 @@
 - Stage 5d: Created docs/configuration-api.md with DRC + ERC config examples, manufacturer presets, severity lists, pin map docs
 
 ### Stage 6: Integration Tests and Edge Cases
-- (not started)
+- Stage 6a: Created test/test-manufacturer-rules.mjs: 38 assertions covering 7 test scenarios
+  - JLCPCB (5mil track, 0.3mm drill): 22 violations
+  - OSH Park (6mil track, 20mil via, 20mil edge): 29 violations (strictest)
+  - PCBWay (4mil track, 0.15mm drill): 17 violations (most relaxed)
+  - All three produce different violation counts on same PCB
+  - Structural violations (dangling track/via) consistent across all configs
+  - Manufacturer config + severity overrides combined test
+  - Manufacturer config + netclass override combined test
