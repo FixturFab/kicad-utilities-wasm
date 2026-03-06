@@ -32,7 +32,16 @@
   - Violation count difference verification
 
 ### Stage 3: DRC Severity Configuration
-- (not started)
+- Added severity parsing to kicad_configure_drc: maps 35 human-readable names to DRCE_T enums, 3 severity strings to SEVERITY enum
+- Build verified: compiles and links successfully (kicad_drc.mjs + kicad_drc.wasm)
+- Created test/test-drc-severity.mjs: 34 assertions covering 7 test scenarios
+  - Baseline DRC, ignore track_width → 6 fewer violations
+  - Warning severity → same count but severity field changes to "warning" in JSON
+  - Ignore multiple types → cumulative reduction
+  - Combined severity + design_settings overrides
+  - Ignore all violation types → 0 violations
+  - Unknown severity names silently ignored
+- Verified severity filtering in JSON output: "error"/"warning"/"ignore" correctly reflected
 
 ### Stage 4: ERC Configuration
 - (not started)

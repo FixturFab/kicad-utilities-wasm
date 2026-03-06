@@ -341,6 +341,69 @@ int kicad_configure_drc( const char* json_config )
                 net->SetNetClass( netSettings->GetEffectiveNetClass( net->GetNetname() ) );
         }
 
+        // Apply DRC severity overrides
+        if( config.contains( "severities" ) )
+        {
+            // Map human-readable severity names to DRCE_T enum values
+            static const std::map<std::string, int> nameToCode = {
+                { "clearance",            DRCE_CLEARANCE },
+                { "track_width",          DRCE_TRACK_WIDTH },
+                { "via_diameter",         DRCE_VIA_DIAMETER },
+                { "via_drill",            DRCE_DRILL_OUT_OF_RANGE },
+                { "hole_clearance",       DRCE_HOLE_CLEARANCE },
+                { "hole_to_hole",         DRCE_DRILLED_HOLES_TOO_CLOSE },
+                { "edge_clearance",       DRCE_EDGE_CLEARANCE },
+                { "annular_width",        DRCE_ANNULAR_WIDTH },
+                { "silk_clearance",       DRCE_SILK_CLEARANCE },
+                { "courtyard_clearance",  DRCE_OVERLAPPING_FOOTPRINTS },
+                { "unconnected_items",    DRCE_UNCONNECTED_ITEMS },
+                { "dangling_via",         DRCE_DANGLING_VIA },
+                { "dangling_track",       DRCE_DANGLING_TRACK },
+                { "shorting_items",       DRCE_SHORTING_ITEMS },
+                { "copper_sliver",        DRCE_COPPER_SLIVER },
+                { "starved_thermal",      DRCE_STARVED_THERMAL },
+                { "solder_mask_bridge",   DRCE_SOLDERMASK_BRIDGE },
+                { "missing_courtyard",    DRCE_MISSING_COURTYARD },
+                { "missing_footprint",    DRCE_MISSING_FOOTPRINT },
+                { "duplicate_footprint",  DRCE_DUPLICATE_FOOTPRINT },
+                { "text_height",          DRCE_TEXT_HEIGHT },
+                { "text_thickness",       DRCE_TEXT_THICKNESS },
+                { "track_angle",          DRCE_TRACK_ANGLE },
+                { "track_segment_length", DRCE_TRACK_SEGMENT_LENGTH },
+                { "extra_footprint",      DRCE_EXTRA_FOOTPRINT },
+                { "net_conflict",         DRCE_NET_CONFLICT },
+                { "unresolved_variable",  DRCE_UNRESOLVED_VARIABLE },
+                { "copper_edge_clearance", DRCE_EDGE_CLEARANCE },
+                { "connection_width",     DRCE_CONNECTION_WIDTH },
+                { "isolated_copper",      DRCE_ISOLATED_COPPER },
+                { "tracks_crossing",      DRCE_TRACKS_CROSSING },
+                { "malformed_courtyard",  DRCE_MALFORMED_COURTYARD },
+                { "invalid_outline",      DRCE_INVALID_OUTLINE },
+                { "silk_edge_clearance",  DRCE_SILK_EDGE_CLEARANCE },
+                { "silk_mask_clearance",  DRCE_SILK_MASK_CLEARANCE },
+                { "microvia_drill",       DRCE_MICROVIA_DRILL_OUT_OF_RANGE },
+                { "padstack",             DRCE_PADSTACK },
+            };
+
+            // Map severity strings to SEVERITY enum values
+            static const std::map<std::string, SEVERITY> nameToSeverity = {
+                { "error",   RPT_SEVERITY_ERROR },
+                { "warning", RPT_SEVERITY_WARNING },
+                { "ignore",  RPT_SEVERITY_IGNORE },
+            };
+
+            const auto& sevs = config["severities"];
+
+            for( auto it = sevs.begin(); it != sevs.end(); ++it )
+            {
+                auto codeIt = nameToCode.find( it.key() );
+                auto sevIt = nameToSeverity.find( it.value().get<std::string>() );
+
+                if( codeIt != nameToCode.end() && sevIt != nameToSeverity.end() )
+                    bds.m_DRCSeverities[ codeIt->second ] = sevIt->second;
+            }
+        }
+
         // Force DRC engine re-init on next run to pick up changed settings
         bds.m_DRCEngine.reset();
 

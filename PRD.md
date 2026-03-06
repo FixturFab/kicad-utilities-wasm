@@ -264,7 +264,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
 
 **Goal**: Allow overriding severity (error/warning/ignore) for individual DRC check types.
 
-- [ ] 3a: Add severity parsing to `kicad_configure_drc`:
+- [x] 3a: Add severity parsing to `kicad_configure_drc`:
   - Parse `severities` object from JSON
   - Map human-readable names to `DRCE_T` enum values:
     - `"clearance"` → `DRCE_CLEARANCE`
@@ -288,12 +288,12 @@ All fields are optional — omitted fields keep their values from the PCB file. 
     - (full list to be determined from drc_item.h)
   - Map severity strings: `"error"` → `RPT_SEVERITY_ERROR`, `"warning"` → `RPT_SEVERITY_WARNING`, `"ignore"` → `RPT_SEVERITY_IGNORE`
   - Apply via `BOARD_DESIGN_SETTINGS::m_DRCSeverities[errorCode] = severity`
-- [ ] 3b: Create test that:
+- [x] 3b: Create test that:
   1. Loads a PCB with clearance violations
   2. Runs DRC with default severities — counts errors
   3. Sets `"clearance": "ignore"` — runs DRC, verifies clearance violations gone
   4. Sets `"clearance": "warning"` — runs DRC, verifies clearance items are warnings not errors
-- [ ] 3c: Verify that severity filtering works in JSON output — warnings and errors should be distinguishable, ignored checks should not appear
+- [x] 3c: Verify that severity filtering works in JSON output — warnings and errors should be distinguishable, ignored checks should not appear
 
 **Verification**: Setting severity to "ignore" removes those violations from results. Setting to "warning" changes their severity level.
 
