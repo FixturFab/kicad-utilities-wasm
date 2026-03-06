@@ -185,9 +185,19 @@ public:
         return GetSize(GetFullPath());
     }
     bool Mkdir(int perm = wxS_DIR_DEFAULT, int flags = 0) {
-        return mkdir(GetFullPath().c_str(), perm) == 0 || errno == EEXIST;
+        return Mkdir(GetFullPath(), perm, flags);
     }
     static bool Mkdir(const wxString& path, int perm = wxS_DIR_DEFAULT, int flags = 0) {
+        if (flags & wxPATH_MKDIR_FULL) {
+            std::string p(path.c_str());
+            for (size_t i = 1; i < p.size(); i++) {
+                if (p[i] == '/') {
+                    p[i] = '\0';
+                    mkdir(p.c_str(), perm);
+                    p[i] = '/';
+                }
+            }
+        }
         return mkdir(path.c_str(), perm) == 0 || errno == EEXIST;
     }
 

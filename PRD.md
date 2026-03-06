@@ -297,7 +297,7 @@ KiCad WASM (existing: DRC + ERC + geometry)
       model_dir: "/models"   // sets KICAD*_3DMODEL_DIR env var
   };
   ```
-- [ ] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
+- [x] 8b: Implement WASM-compatible `FILENAME_RESOLVER` that searches the Emscripten virtual FS
 - [ ] 8c: Test with a PCB that has component models
 - [ ] 8d: Add model preloading to the browser demo
 

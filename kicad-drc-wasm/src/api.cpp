@@ -621,6 +621,8 @@ const char* kicad_get_pcb_geometry( void )
 #include <exporters/step/exporter_step.h>
 #include <build_version.h>
 #include <env_vars.h>
+#include <filename_resolver.h>
+#include <common.h>
 
 static std::string g_step_result;
 static const wxString g_model_virtual_dir = wxS( "/models/" );
@@ -636,10 +638,18 @@ int kicad_set_3d_model_dir( const char* path )
     wxString envVarName = ENV_VAR::GetVersionedEnvVarName( wxS( "3DMODEL_DIR" ) );
     setenv( (const char*)envVarName.c_str(), path, 1 );
 
-    // Also set common aliases for cross-version compatibility
+    // Set all common version aliases for cross-version PCB compatibility.
+    // PCB files may reference ${KICAD6_3DMODEL_DIR}, ${KICAD7_3DMODEL_DIR}, etc.
+    // In WASM, the static predefinedEnvVars list may be empty due to static init
+    // ordering with LTO, so the getVersionedEnvVar fallback in KIwxExpandEnvVars
+    // won't work. Setting all versions ensures wxGetEnv finds them directly.
+    setenv( "KICAD6_3DMODEL_DIR", path, 1 );
+    setenv( "KICAD7_3DMODEL_DIR", path, 1 );
+    setenv( "KICAD8_3DMODEL_DIR", path, 1 );
+    setenv( "KICAD9_3DMODEL_DIR", path, 1 );
     setenv( "KISYS3DMOD", path, 1 );
 
-    fprintf( stderr, "[STEP] Set %s = %s\n", (const char*)envVarName.c_str(), path );
+    fprintf( stderr, "[STEP] Set 3DMODEL_DIR = %s\n", path );
     return 0;
 }
 
@@ -786,6 +796,9 @@ const char* kicad_export_step( const char* options_json )
 
     try
     {
+        fprintf( stderr, "[STEP] BoardOnly=%d ExportComponents=%d\n",
+                 (int)params.m_BoardOnly, (int)params.m_ExportComponents );
+
         fprintf( stderr, "[STEP] Creating EXPORTER_STEP...\n" );
         EXPORTER_STEP exporter( g_board.get(), params, &reporter );
         exporter.m_outputFile = outputPath;
