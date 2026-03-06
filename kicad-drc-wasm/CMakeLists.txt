@@ -833,7 +833,7 @@ if(EMSCRIPTEN)
             -sEXPORT_ES6=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createKicadDRC \
-            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_configure_drc\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_kicad_export_step\",\"_kicad_set_3d_model_dir\",\"_kicad_upload_3d_model\",\"_diag_ping\",\"_malloc\",\"_free\"] \
+            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_configure_drc\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_configure_erc\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_kicad_export_step\",\"_kicad_set_3d_model_dir\",\"_kicad_upload_3d_model\",\"_diag_ping\",\"_malloc\",\"_free\"] \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\",\"stringToUTF8\",\"lengthBytesUTF8\"] \
             -O3 \
             -flto \

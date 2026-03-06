@@ -44,7 +44,20 @@
 - Verified severity filtering in JSON output: "error"/"warning"/"ignore" correctly reflected
 
 ### Stage 4: ERC Configuration
-- (not started)
+- Added kicad_configure_erc(const char* json_config) to api.cpp with severity + pin_map parsing
+- Added kicad_configure_erc declaration to include/kicad_drc_api.h
+- Added _kicad_configure_erc to EXPORTED_FUNCTIONS in CMakeLists.txt
+- Severities: maps 42 ERCE_T names to enum values
+- Pin map: maps 12 pin type names, parses "type1_to_type2" key format, sets PIN_ERROR values
+- Build verified: compiles and links successfully (kicad_drc.mjs + kicad_drc.wasm)
+- Created test/test-erc-config.mjs: 33 assertions covering 8 test scenarios
+  - Baseline ERC, ignore pin_not_connected → 5 fewer violations
+  - Warning severity → same count but severity field changes to "warning" in JSON
+  - Ignore multiple types → cumulative reduction
+  - Error handling (no schematic, invalid JSON)
+  - Empty config, unknown severity names
+  - Ignore all violation types → 0 violations
+- Pin map override implemented (Stage 4d): "type1_to_type2" key format
 
 ### Stage 5: TypeScript Types and Node.js API
 - (not started)

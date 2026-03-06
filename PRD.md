@@ -303,7 +303,7 @@ All fields are optional — omitted fields keep their values from the PCB file. 
 
 **Goal**: Allow overriding ERC severity settings and pin conflict matrix via JSON.
 
-- [ ] 4a: Add `kicad_configure_erc(const char* json)` function to `api.cpp`
+- [x] 4a: Add `kicad_configure_erc(const char* json)` function to `api.cpp`
   - Parse JSON using nlohmann::json
   - Access ERC settings via the SCHEMATIC object
   - Apply `severities` overrides:
@@ -333,13 +333,13 @@ All fields are optional — omitted fields keep their values from the PCB file. 
       - (full list from erc_settings.h)
     - Apply via `ERC_SETTINGS::SetSeverity(errorCode, severity)`
   - Return 0 on success, -1 on error
-- [ ] 4b: Add `_kicad_configure_erc` to EXPORTED_FUNCTIONS in CMakeLists.txt
-- [ ] 4c: Create `test/test-erc-config.mjs` that:
+- [x] 4b: Add `_kicad_configure_erc` to EXPORTED_FUNCTIONS in CMakeLists.txt
+- [x] 4c: Create `test/test-erc-config.mjs` that:
   1. Loads a schematic with known ERC violations
   2. Runs ERC with defaults, counts violations
   3. Sets some checks to "ignore", runs ERC, verifies fewer violations
   4. Sets some checks to "warning", verifies severity level changes in output
-- [ ] 4d: Optional — add pin conflict matrix override via `pin_map` in JSON
+- [x] 4d: Optional — add pin conflict matrix override via `pin_map` in JSON
 
 **Verification**: ERC violation count and severity change when settings are overridden.
 

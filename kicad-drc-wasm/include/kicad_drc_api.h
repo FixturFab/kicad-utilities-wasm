@@ -63,6 +63,15 @@ int kicad_load_schematic(const char* sch_content, size_t length);
 int kicad_load_schematic_sheet(const char* sheet_path, const char* content, size_t length);
 
 /**
+ * Configure ERC settings via JSON before running ERC.
+ * Must call kicad_load_schematic() first. Call before kicad_run_erc().
+ * All fields are optional — omitted fields keep their values from the schematic.
+ * @param json_config  JSON string with severities and pin_map overrides.
+ * @return 0 on success, non-zero error code on failure.
+ */
+int kicad_configure_erc(const char* json_config);
+
+/**
  * Run ERC checks on the loaded schematic.
  * Must call kicad_load_schematic() first.
  * @return Number of violations found, or -1 on error.

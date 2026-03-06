@@ -1443,6 +1443,156 @@ const char* kicad_get_erc_results( void )
     return g_erc_json_result.c_str();
 }
 
+int kicad_configure_erc( const char* json_config )
+{
+    if( !g_schematic )
+        return -1;
+
+    if( !json_config )
+        return -2;
+
+    try
+    {
+        nlohmann::json config = nlohmann::json::parse( json_config );
+        ERC_SETTINGS& ercSettings = g_schematic->ErcSettings();
+
+        // Apply ERC severity overrides
+        if( config.contains( "severities" ) )
+        {
+            // Map human-readable names to ERCE_T enum values
+            static const std::map<std::string, int> nameToCode = {
+                { "pin_not_connected",       ERCE_PIN_NOT_CONNECTED },
+                { "pin_not_driven",          ERCE_PIN_NOT_DRIVEN },
+                { "powerpin_not_driven",     ERCE_POWERPIN_NOT_DRIVEN },
+                { "missing_power_pin",       ERCE_MISSING_POWER_INPUT_PIN },
+                { "missing_input_pin",       ERCE_MISSING_INPUT_PIN },
+                { "missing_bidi_pin",        ERCE_MISSING_BIDI_PIN },
+                { "missing_unit",            ERCE_MISSING_UNIT },
+                { "duplicate_sheet_name",    ERCE_DUPLICATE_SHEET_NAME },
+                { "endpoint_off_grid",       ERCE_ENDPOINT_OFF_GRID },
+                { "noconnect_connected",     ERCE_NOCONNECT_CONNECTED },
+                { "noconnect_not_connected", ERCE_NOCONNECT_NOT_CONNECTED },
+                { "label_not_connected",     ERCE_LABEL_NOT_CONNECTED },
+                { "similar_labels",          ERCE_SIMILAR_LABELS },
+                { "similar_power",           ERCE_SIMILAR_POWER },
+                { "similar_label_and_power", ERCE_SIMILAR_LABEL_AND_POWER },
+                { "different_unit_footprint", ERCE_DIFFERENT_UNIT_FP },
+                { "different_unit_net",      ERCE_DIFFERENT_UNIT_NET },
+                { "different_unit_value",    ERCE_DIFFERENT_UNIT_VALUE },
+                { "wire_dangling",           ERCE_WIRE_DANGLING },
+                { "unresolved_variable",     ERCE_UNRESOLVED_VARIABLE },
+                { "undefined_netclass",      ERCE_UNDEFINED_NETCLASS },
+                { "unannotated",             ERCE_UNANNOTATED },
+                { "extra_units",             ERCE_EXTRA_UNITS },
+                { "duplicate_reference",     ERCE_DUPLICATE_REFERENCE },
+                { "four_way_junction",       ERCE_FOUR_WAY_JUNCTION },
+                { "lib_symbol_issues",       ERCE_LIB_SYMBOL_ISSUES },
+                { "lib_symbol_mismatch",     ERCE_LIB_SYMBOL_MISMATCH },
+                { "bus_conflict",            ERCE_BUS_TO_BUS_CONFLICT },
+                { "bus_entry_conflict",      ERCE_BUS_ENTRY_CONFLICT },
+                { "bus_to_net_conflict",     ERCE_BUS_TO_NET_CONFLICT },
+                { "bus_alias_conflict",      ERCE_BUS_ALIAS_CONFLICT },
+                { "driver_conflict",         ERCE_DRIVER_CONFLICT },
+                { "hierachical_label",       ERCE_HIERACHICAL_LABEL },
+                { "simulation_model",        ERCE_SIMULATION_MODEL },
+                { "footprint_link_issues",   ERCE_FOOTPRINT_LINK_ISSUES },
+                { "footprint_filters",       ERCE_FOOTPRINT_FILTERS },
+                { "single_global_label",     ERCE_SINGLE_GLOBAL_LABEL },
+                { "same_local_global_label", ERCE_SAME_LOCAL_GLOBAL_LABEL },
+                { "ground_pin_not_ground",   ERCE_GROUND_PIN_NOT_GROUND },
+                { "label_single_pin",        ERCE_LABEL_SINGLE_PIN },
+                { "label_multiple_wires",    ERCE_LABEL_MULTIPLE_WIRES },
+                { "unconnected_wire_endpoint", ERCE_UNCONNECTED_WIRE_ENDPOINT },
+                { "stacked_pin_syntax",      ERCE_STACKED_PIN_SYNTAX },
+                { "field_name_whitespace",   ERCE_FIELD_NAME_WHITESPACE },
+            };
+
+            // Map severity strings to SEVERITY enum values
+            static const std::map<std::string, SEVERITY> nameToSeverity = {
+                { "error",   RPT_SEVERITY_ERROR },
+                { "warning", RPT_SEVERITY_WARNING },
+                { "ignore",  RPT_SEVERITY_IGNORE },
+            };
+
+            const auto& sevs = config["severities"];
+
+            for( auto it = sevs.begin(); it != sevs.end(); ++it )
+            {
+                auto codeIt = nameToCode.find( it.key() );
+                auto sevIt = nameToSeverity.find( it.value().get<std::string>() );
+
+                if( codeIt != nameToCode.end() && sevIt != nameToSeverity.end() )
+                    ercSettings.SetSeverity( codeIt->second, sevIt->second );
+            }
+        }
+
+        // Apply pin conflict matrix overrides
+        if( config.contains( "pin_map" ) )
+        {
+            // Map pin type names to ELECTRICAL_PINTYPE enum values
+            static const std::map<std::string, ELECTRICAL_PINTYPE> nameToPin = {
+                { "input",          ELECTRICAL_PINTYPE::PT_INPUT },
+                { "output",         ELECTRICAL_PINTYPE::PT_OUTPUT },
+                { "bidirectional",  ELECTRICAL_PINTYPE::PT_BIDI },
+                { "tri_state",      ELECTRICAL_PINTYPE::PT_TRISTATE },
+                { "passive",        ELECTRICAL_PINTYPE::PT_PASSIVE },
+                { "unspecified",    ELECTRICAL_PINTYPE::PT_UNSPECIFIED },
+                { "power_in",       ELECTRICAL_PINTYPE::PT_POWER_IN },
+                { "power_out",      ELECTRICAL_PINTYPE::PT_POWER_OUT },
+                { "open_collector", ELECTRICAL_PINTYPE::PT_OPENCOLLECTOR },
+                { "open_emitter",   ELECTRICAL_PINTYPE::PT_OPENEMITTER },
+                { "no_connect",     ELECTRICAL_PINTYPE::PT_NC },
+                { "free",           ELECTRICAL_PINTYPE::PT_NIC },
+            };
+
+            // Map pin error strings to PIN_ERROR enum
+            static const std::map<std::string, PIN_ERROR> nameToPinError = {
+                { "ok",      PIN_ERROR::OK },
+                { "warning", PIN_ERROR::WARNING },
+                { "error",   PIN_ERROR::PP_ERROR },
+            };
+
+            const auto& pm = config["pin_map"];
+
+            for( auto it = pm.begin(); it != pm.end(); ++it )
+            {
+                // Key format: "type1_to_type2" (e.g. "output_to_output")
+                const std::string& key = it.key();
+                size_t toPos = key.find( "_to_" );
+
+                if( toPos == std::string::npos )
+                    continue;
+
+                std::string firstName = key.substr( 0, toPos );
+                std::string secondName = key.substr( toPos + 4 );
+
+                auto firstIt = nameToPin.find( firstName );
+                auto secondIt = nameToPin.find( secondName );
+                auto valueIt = nameToPinError.find( it.value().get<std::string>() );
+
+                if( firstIt != nameToPin.end() && secondIt != nameToPin.end()
+                    && valueIt != nameToPinError.end() )
+                {
+                    ercSettings.SetPinMapValue( firstIt->second, secondIt->second,
+                                                valueIt->second );
+                }
+            }
+        }
+
+        return 0;
+    }
+    catch( const nlohmann::json::exception& e )
+    {
+        fprintf( stderr, "ERC config JSON error: %s\n", e.what() );
+        return -3;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "ERC config error: %s\n", e.what() );
+        return -4;
+    }
+}
+
 void kicad_cleanup_schematic( void )
 {
     g_erc_json_result.clear();
