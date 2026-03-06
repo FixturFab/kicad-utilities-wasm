@@ -115,3 +115,5 @@
   - Unassigned nets fall back to Default; assigning more nets to relaxed reduces violations
   - Three netclasses same priority: alphabetically first (AAFirst) wins
   - Pattern-only assignments: VCC+GND via patterns both get strict netclass
+- Stage 6f: Added npm scripts to package.json: test:drc-config, test:erc-config, test:drc-severity, test:netclass-config, test:netclass-priority, test:manufacturer-rules, test:config-persistence, test:invalid-json, test:partial-config
+  - Both test:drc-config (28 passed) and test:erc-config (33 passed) verified working

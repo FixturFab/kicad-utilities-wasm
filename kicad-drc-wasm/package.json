@@ -37,7 +37,16 @@
     "test:step-parity": "node test/test-step-parity.mjs",
     "test:step-native": "node test/test-native-step.mjs",
     "test:step-native-parity": "node test/test-step-native-parity.mjs",
-    "test:3d-model": "node test/test-3d-model.mjs"
+    "test:3d-model": "node test/test-3d-model.mjs",
+    "test:drc-config": "node test/test-drc-config.mjs",
+    "test:erc-config": "node test/test-erc-config.mjs",
+    "test:drc-severity": "node test/test-drc-severity.mjs",
+    "test:netclass-config": "node test/test-netclass-config.mjs",
+    "test:netclass-priority": "node test/test-netclass-priority.mjs",
+    "test:manufacturer-rules": "node test/test-manufacturer-rules.mjs",
+    "test:config-persistence": "node test/test-config-persistence.mjs",
+    "test:invalid-json": "node test/test-invalid-json.mjs",
+    "test:partial-config": "node test/test-partial-config.mjs"
   },
   "license": "GPL-3.0",
   "engines": {
