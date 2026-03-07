@@ -733,44 +733,6 @@
                 }
             }
 
-            // Add reference designator labels from geometry JSON
-            if (geometryData?.components) {
-                const thickness = geometryData.board?.thickness_mm || 1.6;
-                for (const comp of geometryData.components) {
-                    if (!comp.reference) continue;
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    const text = comp.reference;
-                    const fontSize = 48;
-                    ctx.font = `bold ${fontSize}px monospace`;
-                    const metrics = ctx.measureText(text);
-                    canvas.width = Math.ceil(metrics.width) + 8;
-                    canvas.height = fontSize + 8;
-                    ctx.font = `bold ${fontSize}px monospace`;
-                    ctx.fillStyle = 'white';
-                    ctx.fillText(text, 4, fontSize);
-
-                    const texture = new THREE.CanvasTexture(canvas);
-                    texture.minFilter = THREE.LinearFilter;
-                    const spriteMat = new THREE.SpriteMaterial({
-                        map: texture,
-                        depthTest: true,
-                        sizeAttenuation: true,
-                    });
-                    const sprite = new THREE.Sprite(spriteMat);
-
-                    // Scale: 1mm per ~32px
-                    const scaleX = canvas.width / 32;
-                    const scaleY = canvas.height / 32;
-                    sprite.scale.set(scaleX, scaleY, 1);
-
-                    // STEP coordinates: X same, Y negated, Z is height
-                    const topZ = comp.side === 'bottom' ? -0.1 : thickness + 0.1;
-                    sprite.position.set(comp.position.x_mm, -comp.position.y_mm, topZ);
-                    group.add(sprite);
-                }
-            }
-
             return group;
         }
 
