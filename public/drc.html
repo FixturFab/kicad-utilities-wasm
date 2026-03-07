@@ -91,27 +91,18 @@
         const jsonOutput = document.getElementById('json-output');
         const headerWarning = document.getElementById('header-warning');
 
-        // Check for SharedArrayBuffer support
-        const DEMO_VERSION = '2026-03-06-native-step';
+        const DEMO_VERSION = '2026-03-06-single-thread';
         console.log(`%c[KiCad WASM Demo] v${DEMO_VERSION}`, 'color: #2d8a4e; font-weight: bold; font-size: 14px');
 
-        if (typeof SharedArrayBuffer === 'undefined') {
-            headerWarning.style.display = 'block';
-            moduleStatus.className = 'status error';
-            moduleStatus.innerHTML = '<span>SharedArrayBuffer not available. Multi-threaded WASM requires COOP/COEP headers.</span>';
-        } else {
-            loadModule();
-        }
+        // Single-threaded build — no SharedArrayBuffer needed
+        loadModule();
 
         async function loadModule() {
             try {
-                const cacheBust = `?v=${DEMO_VERSION}`;
-                const { default: createKicadDRC } = await import('./kicad_drc.mjs' + cacheBust);
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
                 Module = await createKicadDRC({
                     print: (text) => console.log('[WASM]', text),
                     printErr: () => {},
-                    locateFile: (path) => './' + path + cacheBust,
-                    mainScriptUrlOrBlob: './kicad_drc.mjs' + cacheBust
                 });
 
                 await new Promise(r => setTimeout(r, 1000));

@@ -51,6 +51,7 @@ if(EMSCRIPTEN)
         ${KICAD_SRC}/thirdparty/expected/include
         ${KICAD_SRC}/thirdparty/picosha2
         ${KICAD_SRC}/thirdparty/json_schema_validator
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/thread-pool
         ${KICAD_SRC}/thirdparty/thread-pool
         ${KICAD_SRC}/thirdparty/fast_float/include
         ${KICAD_SRC}/thirdparty/fmt/include
@@ -92,7 +93,6 @@ if(EMSCRIPTEN)
         -O3
         -flto
         -fexceptions
-        -pthread
         -Wno-attributes
         -Wno-ignored-attributes
         -Wno-deprecated-declarations
@@ -134,7 +134,7 @@ if(EMSCRIPTEN)
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createOcctBooleanTest \
             -sALLOW_MEMORY_GROWTH=1 \
-            -sINITIAL_MEMORY=67108864 \
+            -sINITIAL_MEMORY=536870912 \
             -sENVIRONMENT=node \
             -sNO_DISABLE_EXCEPTION_CATCHING \
             -fexceptions \
@@ -172,7 +172,7 @@ if(EMSCRIPTEN)
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createOcctStepWriteTest \
             -sALLOW_MEMORY_GROWTH=1 \
-            -sINITIAL_MEMORY=67108864 \
+            -sINITIAL_MEMORY=536870912 \
             -sENVIRONMENT=node \
             -sNO_DISABLE_EXCEPTION_CATCHING \
             -fexceptions \
@@ -784,7 +784,7 @@ if(EMSCRIPTEN)
             -sEXPORTED_FUNCTIONS=[\"_minimal_ping\",\"_malloc\",\"_free\"] \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\"] \
             -sALLOW_MEMORY_GROWTH=1 \
-            -sINITIAL_MEMORY=67108864 \
+            -sINITIAL_MEMORY=536870912 \
             -sFILESYSTEM=1 \
             -sENVIRONMENT=node \
             -sNO_DISABLE_EXCEPTION_CATCHING \
@@ -838,15 +838,13 @@ if(EMSCRIPTEN)
             -O3 \
             -flto \
             -sALLOW_MEMORY_GROWTH=1 \
-            -sINITIAL_MEMORY=67108864 \
+            -sINITIAL_MEMORY=536870912 \
             -sSTACK_SIZE=16777216 \
             -sFILESYSTEM=1 \
             -sENVIRONMENT=node,web,worker \
             -sNO_DISABLE_EXCEPTION_CATCHING \
             -sASSERTIONS=0 \
             -sSTACK_OVERFLOW_CHECK=0 \
-            -pthread \
-            -sPTHREAD_POOL_SIZE=4 \
             -sUSE_ZLIB=1 \
         "
     )
@@ -888,6 +886,7 @@ else()
         ${KICAD_SRC}/thirdparty/expected/include
         ${KICAD_SRC}/thirdparty/picosha2
         ${KICAD_SRC}/thirdparty/json_schema_validator
+        ${CMAKE_CURRENT_SOURCE_DIR}/stubs/thread-pool
         ${KICAD_SRC}/thirdparty/thread-pool
         ${KICAD_SRC}/thirdparty/fast_float/include
         ${KICAD_SRC}/thirdparty/fmt/include

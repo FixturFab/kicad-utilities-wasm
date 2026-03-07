@@ -963,6 +963,7 @@ const char* kicad_export_step( const char* options_json )
     params.m_ExportComponents = false;
     params.m_BoardOnly = true;
     params.m_OptimizeStep = true;
+    params.m_FuseShapes = false;    // Disabled by default — very slow on complex boards
     params.m_Overwrite = true;
 
     // Parse options from JSON if provided

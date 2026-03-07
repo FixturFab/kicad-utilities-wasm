@@ -217,6 +217,21 @@
                 </label>
             </div>
 
+            <div class="export-options" id="step-detail-options">
+                <label title="Include copper tracks and vias (slower)">
+                    <input type="checkbox" id="include-tracks">
+                    Tracks
+                </label>
+                <label title="Include copper fill zones (slower)">
+                    <input type="checkbox" id="include-zones">
+                    Zones
+                </label>
+                <label title="Include silkscreen reference labels (slow on complex boards, non-manifold)">
+                    <input type="checkbox" id="include-silkscreen">
+                    Silkscreen
+                </label>
+            </div>
+
             <div class="btn-group">
                 <button class="btn btn-primary" id="generate-step-2" disabled>Generate STEP</button>
                 <button class="btn btn-secondary" id="download-step" disabled style="display: none;">Download .step</button>
@@ -293,31 +308,25 @@
         const modelFileInput = document.getElementById('model-file-input');
         const modelSummary = document.getElementById('model-summary');
         const exportOptions = document.getElementById('export-options');
+        const includeTracksCb = document.getElementById('include-tracks');
+        const includeZonesCb = document.getElementById('include-zones');
+        const includeSilkscreenCb = document.getElementById('include-silkscreen');
         const includeComponentsCb = document.getElementById('include-components');
 
         // ── Version banner ──
-        const DEMO_VERSION = '2026-03-06-native-step';
+        const DEMO_VERSION = '2026-03-06-single-thread';
         console.log(`%c[KiCad WASM Demo] v${DEMO_VERSION}`, 'color: #2d8a4e; font-weight: bold; font-size: 14px');
         console.log(`[KiCad WASM Demo] Native STEP export via OCCT 7.6.3 + DRC/ERC config API`);
 
-        // ── KiCad WASM loading ──
-        if (typeof SharedArrayBuffer === 'undefined') {
-            headerWarning.style.display = 'block';
-            kicadStatus.className = 'status error';
-            kicadStatus.innerHTML = '<span>SharedArrayBuffer not available. Multi-threaded WASM requires COOP/COEP headers.</span>';
-        } else {
-            loadModule();
-        }
+        // ── KiCad WASM loading (single-threaded, no SharedArrayBuffer needed) ──
+        loadModule();
 
         async function loadModule() {
             try {
-                const cacheBust = `?v=${DEMO_VERSION}`;
-                const { default: createKicadDRC } = await import('./kicad_drc.mjs' + cacheBust);
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
                 Module = await createKicadDRC({
                     print: (text) => console.log('[WASM]', text),
                     printErr: () => {},
-                    locateFile: (path) => './' + path + cacheBust,
-                    mainScriptUrlOrBlob: './kicad_drc.mjs' + cacheBust
                 });
 
                 await new Promise(r => setTimeout(r, 1000));
@@ -624,53 +633,141 @@
             toggleJson.textContent = isHidden ? 'Hide raw JSON' : 'Show raw JSON';
         });
 
-        // ── Build 3D preview from geometry JSON using THREE.js ──
-        function buildPreviewMesh(geo) {
+        // ── Build 3D preview from STEP via occt-import-js ──
+        let occtModule = null;
+
+        async function loadOcctImportJs() {
+            if (occtModule) return occtModule;
+            // occt-import-js is UMD — load as classic script, then use the global
+            if (typeof occtimportjs === 'undefined') {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = './occt-import-js.js';
+                    script.onload = resolve;
+                    script.onerror = reject;
+                    document.head.appendChild(script);
+                });
+            }
+            occtModule = await occtimportjs({
+                locateFile: (path) => './' + path,
+            });
+            return occtModule;
+        }
+
+        function buildPreviewFromStep(occtResult) {
             const group = new THREE.Group();
-            const thickness = geo.board?.thickness_mm || 1.6;
 
-            // Board body (extruded outline)
-            const polygons = geo.board?.outline?.polygons || [];
-            if (polygons.length > 0) {
-                const firstPoly = polygons[0];
-                const shape = new THREE.Shape();
-                const pts = firstPoly.outline;
-                if (pts && pts.length >= 3) {
-                    shape.moveTo(pts[0][0], -pts[0][1]);
-                    for (let i = 1; i < pts.length; i++) {
-                        shape.lineTo(pts[i][0], -pts[i][1]);
+            for (const mesh of occtResult.meshes) {
+                const positions = new Float32Array(mesh.attributes.position.array);
+                const normals = mesh.attributes.normal
+                    ? new Float32Array(mesh.attributes.normal.array)
+                    : undefined;
+                const indices = new Uint32Array(mesh.index.array);
+                const totalTriangles = indices.length / 3;
+
+                // Group triangles by color (from brep_faces)
+                const colorGroups = new Map();
+                const covered = new Set();
+
+                for (const face of (mesh.brep_faces || [])) {
+                    if (!face.color) continue;
+                    const key = face.color.map(c => c.toFixed(4)).join('_');
+                    if (!colorGroups.has(key)) {
+                        colorGroups.set(key, { color: face.color, triangles: [] });
                     }
-                    shape.closePath();
+                    for (let t = face.first; t < face.last; t++) {
+                        colorGroups.get(key).triangles.push(t);
+                        covered.add(t);
+                    }
+                }
 
-                    // Add holes
-                    if (firstPoly.holes) {
-                        for (const hole of firstPoly.holes) {
-                            if (hole.length < 3) continue;
-                            const holePath = new THREE.Path();
-                            holePath.moveTo(hole[0][0], -hole[0][1]);
-                            for (let i = 1; i < hole.length; i++) {
-                                holePath.lineTo(hole[i][0], -hole[i][1]);
+                // Uncovered triangles get default color (or mesh-level color)
+                const uncovered = [];
+                for (let t = 0; t < totalTriangles; t++) {
+                    if (!covered.has(t)) uncovered.push(t);
+                }
+                if (uncovered.length > 0) {
+                    const defaultColor = mesh.color || [0.8, 0.8, 0.8];
+                    colorGroups.set('default', { color: defaultColor, triangles: uncovered });
+                }
+
+                // Create a THREE.Mesh for each color group
+                for (const [, grp] of colorGroups) {
+                    const oldToNew = new Map();
+                    const newPositions = [];
+                    const newNormals = [];
+                    const newIndices = [];
+
+                    for (const triIdx of grp.triangles) {
+                        for (let v = 0; v < 3; v++) {
+                            const oldIdx = indices[triIdx * 3 + v];
+                            let newIdx = oldToNew.get(oldIdx);
+                            if (newIdx === undefined) {
+                                newIdx = oldToNew.size;
+                                oldToNew.set(oldIdx, newIdx);
+                                newPositions.push(positions[oldIdx * 3], positions[oldIdx * 3 + 1], positions[oldIdx * 3 + 2]);
+                                if (normals) {
+                                    newNormals.push(normals[oldIdx * 3], normals[oldIdx * 3 + 1], normals[oldIdx * 3 + 2]);
+                                }
                             }
-                            holePath.closePath();
-                            shape.holes.push(holePath);
+                            newIndices.push(newIdx);
                         }
                     }
 
-                    // Add drill holes as circular paths
-                    for (const h of (geo.holes || [])) {
-                        if (h.diameter_mm < 0.02) continue;
-                        const r = h.diameter_mm / 2;
-                        const holePath = new THREE.Path();
-                        holePath.absarc(h.x_mm, -h.y_mm, r, 0, Math.PI * 2, true);
-                        shape.holes.push(holePath);
+                    const geom = new THREE.BufferGeometry();
+                    geom.setAttribute('position', new THREE.Float32BufferAttribute(newPositions, 3));
+                    if (newNormals.length > 0) {
+                        geom.setAttribute('normal', new THREE.Float32BufferAttribute(newNormals, 3));
+                    } else {
+                        geom.computeVertexNormals();
                     }
+                    geom.setIndex(newIndices);
 
-                    const extrudeSettings = { depth: thickness, bevelEnabled: false };
-                    const geom = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-                    const mat = new THREE.MeshPhongMaterial({ color: 0x2d8a4e, side: THREE.DoubleSide });
-                    const mesh = new THREE.Mesh(geom, mat);
-                    mesh.rotation.x = Math.PI / 2;
-                    group.add(mesh);
+                    const [r, g, b] = grp.color;
+                    const mat = new THREE.MeshPhongMaterial({
+                        color: new THREE.Color(r, g, b),
+                        side: THREE.FrontSide,
+                    });
+
+                    group.add(new THREE.Mesh(geom, mat));
+                }
+            }
+
+            // Add reference designator labels from geometry JSON
+            if (geometryData?.components) {
+                const thickness = geometryData.board?.thickness_mm || 1.6;
+                for (const comp of geometryData.components) {
+                    if (!comp.reference) continue;
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const text = comp.reference;
+                    const fontSize = 48;
+                    ctx.font = `bold ${fontSize}px monospace`;
+                    const metrics = ctx.measureText(text);
+                    canvas.width = Math.ceil(metrics.width) + 8;
+                    canvas.height = fontSize + 8;
+                    ctx.font = `bold ${fontSize}px monospace`;
+                    ctx.fillStyle = 'white';
+                    ctx.fillText(text, 4, fontSize);
+
+                    const texture = new THREE.CanvasTexture(canvas);
+                    texture.minFilter = THREE.LinearFilter;
+                    const spriteMat = new THREE.SpriteMaterial({
+                        map: texture,
+                        depthTest: true,
+                        sizeAttenuation: true,
+                    });
+                    const sprite = new THREE.Sprite(spriteMat);
+
+                    // Scale: 1mm per ~32px
+                    const scaleX = canvas.width / 32;
+                    const scaleY = canvas.height / 32;
+                    sprite.scale.set(scaleX, scaleY, 1);
+
+                    // STEP coordinates: X same, Y negated, Z is height
+                    const topZ = comp.side === 'bottom' ? -0.1 : thickness + 0.1;
+                    sprite.position.set(comp.position.x_mm, -comp.position.y_mm, topZ);
+                    group.add(sprite);
                 }
             }
 
@@ -689,7 +786,7 @@
                 10000
             );
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
             renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             viewerContainer.appendChild(renderer.domElement);
@@ -741,61 +838,106 @@
             controls.update();
         }
 
-        // ── Generate STEP (native export via OCCT 7.6.3 in WASM) ──
+        // ── Generate STEP via Web Worker (avoids pthread deadlock on main thread) ──
+        let stepWorker = null;
+
         async function generateStep() {
-            if (!geometryData || !Module || !boardLoaded) return;
+            if (!geometryData || !currentPcbContent) return;
 
             generateStepBtn.disabled = true;
             generateStepBtn2.disabled = true;
-            generateStepBtn2.textContent = 'Generating STEP...';
+            generateStepBtn2.textContent = 'Starting STEP export...';
 
             const t0 = performance.now();
+            const elapsedInterval = setInterval(() => {
+                const elapsed = Math.floor((performance.now() - t0) / 1000);
+                generateStepBtn2.textContent = `Generating STEP... (${elapsed}s)`;
+            }, 1000);
 
-            try {
-                const withComponents = includeComponentsCb.checked && uploadedModelCount > 0;
-                const optionsJson = JSON.stringify({
-                    board_only: !withComponents,
-                    export_board_body: true,
-                    export_components: withComponents,
-                    ...(withComponents ? { model_dir: '/models' } : {}),
-                });
+            const withComponents = includeComponentsCb.checked && uploadedModelCount > 0;
+            const optionsJson = JSON.stringify({
+                board_only: !withComponents,
+                export_board_body: true,
+                export_components: withComponents,
+                export_pads: true,
+                export_tracks: includeTracksCb.checked,
+                export_zones: includeZonesCb.checked,
+                export_inner_copper: includeTracksCb.checked || includeZonesCb.checked,
+                export_silkscreen: includeSilkscreenCb.checked,
+                cut_vias_in_body: true,
+                ...(withComponents ? { model_dir: '/models' } : {}),
+            });
 
-                const stepContent = Module.ccall('kicad_export_step', 'string', ['string'], [optionsJson]);
-
-                if (!stepContent) {
-                    throw new Error('STEP export returned null — check console for errors');
-                }
-
-                stepData = stepContent;
-
-                const totalTime = ((performance.now() - t0) / 1000).toFixed(1);
-                console.log(`STEP export: ${totalTime}s, ${stepContent.length} bytes`);
-
-                // Show download button
-                downloadStepBtn.style.display = 'inline-block';
-                downloadStepBtn.disabled = false;
-
-                // Build 3D preview from geometry JSON
-                viewerCard.style.display = 'block';
-                if (!renderer) {
-                    setupViewer();
-                }
-                // Clear previous meshes
-                while (scene.children.length > 3) scene.remove(scene.children[scene.children.length - 1]);
-                const previewGroup = buildPreviewMesh(geometryData);
-                scene.add(previewGroup);
-                fitCamera(previewGroup);
-
-                generateStepBtn2.textContent = `Done (${totalTime}s)`;
-                generateStepBtn2.className = 'btn btn-primary';
-
-            } catch (err) {
-                console.error('STEP generation failed:', err);
-                alert('STEP generation failed: ' + err.message);
-                generateStepBtn2.textContent = 'Generate STEP';
-                generateStepBtn.disabled = false;
-                generateStepBtn2.disabled = false;
+            // Create worker (reuse if already created)
+            if (!stepWorker) {
+                stepWorker = new Worker('./step-worker.js', { type: 'module' });
             }
+
+            stepWorker.onmessage = async (e) => {
+                const { type: msgType, message, stepContent } = e.data;
+
+                if (msgType === 'status' || msgType === 'log') {
+                    console.log('[STEP Worker]', message);
+                    return;
+                }
+
+                if (msgType === 'error') {
+                    clearInterval(elapsedInterval);
+                    console.error('STEP generation failed:', message);
+                    alert('STEP generation failed: ' + message);
+                    generateStepBtn2.textContent = 'Generate STEP';
+                    generateStepBtn.disabled = false;
+                    generateStepBtn2.disabled = false;
+                    return;
+                }
+
+                if (msgType === 'result') {
+                    clearInterval(elapsedInterval);
+                    stepData = stepContent;
+
+                    const totalTime = ((performance.now() - t0) / 1000).toFixed(1);
+                    console.log(`STEP export: ${totalTime}s, ${stepContent.length} bytes`);
+
+                    downloadStepBtn.style.display = 'inline-block';
+                    downloadStepBtn.disabled = false;
+
+                    // Build 3D preview
+                    generateStepBtn2.textContent = 'Building 3D preview...';
+                    viewerCard.style.display = 'block';
+                    if (!renderer) {
+                        setupViewer();
+                    }
+                    while (scene.children.length > 3) scene.remove(scene.children[scene.children.length - 1]);
+
+                    try {
+                        const occt = await loadOcctImportJs();
+                        const stepBytes = new TextEncoder().encode(stepContent);
+                        const occtResult = occt.ReadStepFile(stepBytes, null);
+
+                        if (occtResult.success && occtResult.meshes.length > 0) {
+                            const previewGroup = buildPreviewFromStep(occtResult);
+                            scene.add(previewGroup);
+                            fitCamera(previewGroup);
+                            console.log(`3D preview: ${occtResult.meshes.length} meshes`);
+                        } else {
+                            console.warn('occt-import-js: no meshes extracted from STEP');
+                        }
+                    } catch (previewErr) {
+                        console.warn('3D preview failed (STEP file still valid):', previewErr);
+                    }
+
+                    const finalTime = ((performance.now() - t0) / 1000).toFixed(1);
+                    generateStepBtn2.textContent = `Done (${finalTime}s)`;
+                    generateStepBtn2.className = 'btn btn-primary';
+                    generateStepBtn.disabled = false;
+                    generateStepBtn2.disabled = false;
+                }
+            };
+
+            stepWorker.postMessage({
+                type: 'export',
+                payload: { pcbContent: currentPcbContent, optionsJson },
+            });
         }
 
         generateStepBtn.addEventListener('click', generateStep);
