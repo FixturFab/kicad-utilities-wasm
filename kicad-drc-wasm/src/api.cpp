@@ -60,6 +60,9 @@
 #include <project_sch.h>
 #include <tool/tool_manager.h>
 
+// Specctra DSN/SES
+#include <specctra_import_export/specctra.h>
+
 // Stub for Kiface() - required by some KiCad library code but not used in DRC path
 static KIFACE_BASE* s_kiface_stub = nullptr;
 
@@ -101,6 +104,8 @@ public:
 static std::unique_ptr<BOARD>              g_board;
 static std::string                         g_json_result;
 static std::string                         g_geometry_json_result;
+static std::string                         g_dsn_result;
+static std::string                         g_save_pcb_result;
 static std::unique_ptr<PGM_DRC_STANDALONE> g_pgm;
 
 static void ensure_pgm_initialized()
@@ -1599,6 +1604,127 @@ void kicad_cleanup_schematic( void )
     g_erc_json_result.clear();
     g_schematic.reset();
     // Don't reset g_erc_settings_mgr - reuse across calls
+}
+
+// ── Specctra DSN/SES API ────────────────────────────────────────────────
+
+const char* kicad_export_dsn( void )
+{
+    if( !g_board )
+        return nullptr;
+
+    ensure_pgm_initialized();
+    g_dsn_result.clear();
+
+    try
+    {
+        // Write DSN to a temp file, then read it back
+        wxString tmpPath = wxFileName::CreateTempFileName( wxS( "specctra_dsn" ) );
+        DSN::ExportBoardToSpecctraFile( g_board.get(), tmpPath );
+
+        std::ifstream ifs( (const char*)tmpPath.c_str() );
+        if( ifs )
+        {
+            std::ostringstream oss;
+            oss << ifs.rdbuf();
+            g_dsn_result = oss.str();
+        }
+        wxRemoveFile( tmpPath );
+
+        return g_dsn_result.empty() ? nullptr : g_dsn_result.c_str();
+    }
+    catch( const IO_ERROR& e )
+    {
+        fprintf( stderr, "DSN export error: %s\n",
+                 static_cast<const char*>( e.What().mb_str() ) );
+        return nullptr;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "DSN export error: %s\n", e.what() );
+        return nullptr;
+    }
+}
+
+int kicad_import_ses( const char* ses_content, size_t length )
+{
+    if( !g_board )
+        return -1;
+
+    if( !ses_content )
+        return -2;
+
+    ensure_pgm_initialized();
+
+    try
+    {
+        std::string content;
+        if( length == 0 )
+            content = std::string( ses_content );
+        else
+            content = std::string( ses_content, length );
+
+        // Write SES to temp file (KiCad reads from file)
+        wxString tmpPath = wxFileName::CreateTempFileName( wxS( "specctra_ses" ) );
+        {
+            std::ofstream ofs( (const char*)tmpPath.c_str() );
+            ofs << content;
+        }
+
+        DSN::ImportSpecctraSession( g_board.get(), tmpPath );
+        wxRemoveFile( tmpPath );
+
+        return 0;
+    }
+    catch( const IO_ERROR& e )
+    {
+        fprintf( stderr, "SES import error: %s\n",
+                 static_cast<const char*>( e.What().mb_str() ) );
+        return -3;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "SES import error: %s\n", e.what() );
+        return -4;
+    }
+}
+
+const char* kicad_save_pcb( void )
+{
+    if( !g_board )
+        return nullptr;
+
+    ensure_pgm_initialized();
+    g_save_pcb_result.clear();
+
+    try
+    {
+        wxString tmpPath = wxFileName::CreateTempFileName( wxS( "save_pcb" ) );
+        PCB_IO_KICAD_SEXPR plugin;
+        plugin.SaveBoard( tmpPath, g_board.get() );
+
+        std::ifstream ifs( (const char*)tmpPath.c_str() );
+        if( ifs )
+        {
+            std::ostringstream oss;
+            oss << ifs.rdbuf();
+            g_save_pcb_result = oss.str();
+        }
+        wxRemoveFile( tmpPath );
+
+        return g_save_pcb_result.empty() ? nullptr : g_save_pcb_result.c_str();
+    }
+    catch( const IO_ERROR& e )
+    {
+        fprintf( stderr, "PCB save error: %s\n",
+                 static_cast<const char*>( e.What().mb_str() ) );
+        return nullptr;
+    }
+    catch( const std::exception& e )
+    {
+        fprintf( stderr, "PCB save error: %s\n", e.what() );
+        return nullptr;
+    }
 }
 
 } // extern "C"

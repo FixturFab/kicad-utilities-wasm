@@ -68,6 +68,7 @@ if(EMSCRIPTEN)
         ${KICAD_SRC}/thirdparty/turtle/include
         ${KICAD_SRC}/eeschema
         ${KICAD_BUILD}/eeschema
+        ${KICAD_BUILD}/pcbnew
     )
 
     # ── Compile definitions ─────────────────────────────────────────────────
@@ -583,6 +584,23 @@ if(EMSCRIPTEN)
     target_include_directories(pcbcommon_wasm PUBLIC ${KICAD_INCLUDE_DIRS})
     target_link_libraries(pcbcommon_wasm PUBLIC kicommon_wasm gal_wasm clipper2)
 
+    # ── Specctra DSN/SES (autorouting workflow) ─────────────────────────────
+    # Compiled separately because it needs a stub pcb_edit_frame.h that would
+    # conflict with other pcbnew sources if placed in the global include path.
+    add_library(specctra_wasm STATIC
+        ${KICAD_SRC}/pcbnew/specctra_import_export/specctra.cpp
+        ${KICAD_SRC}/pcbnew/specctra_import_export/specctra_export.cpp
+        ${KICAD_SRC}/pcbnew/specctra_import_export/specctra_import.cpp
+        ${KICAD_BUILD}/pcbnew/specctra_import_export/specctra_keywords.cpp
+    )
+    # Specctra stub dir MUST come first to shadow pcbnew's real pcb_edit_frame.h
+    target_include_directories(specctra_wasm PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/specctra
+    )
+    target_include_directories(specctra_wasm PUBLIC ${KICAD_INCLUDE_DIRS})
+    target_compile_options(specctra_wasm PRIVATE ${KICAD_FORCE_INCLUDE_FLAGS})
+    target_link_libraries(specctra_wasm PUBLIC pcbcommon_wasm)
+
     # ── Eeschema (schematic data model, parser, ERC) ────────────────────────
     add_library(eeschema_wasm STATIC
         # Schematic I/O
@@ -761,6 +779,7 @@ if(EMSCRIPTEN)
         -Wl,--whole-archive
         drc_test_providers
         -Wl,--no-whole-archive
+        specctra_wasm
         drc_support
         eeschema_wasm
         pcbcommon_wasm
@@ -810,6 +829,7 @@ if(EMSCRIPTEN)
         drc_test_providers
         -Wl,--no-whole-archive
         step_exporter_wasm
+        specctra_wasm
         drc_support
         eeschema_wasm
         pcbcommon_wasm
@@ -833,7 +853,7 @@ if(EMSCRIPTEN)
             -sEXPORT_ES6=1 \
             -sMODULARIZE=1 \
             -sEXPORT_NAME=createKicadDRC \
-            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_configure_drc\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_configure_erc\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_kicad_export_step\",\"_kicad_set_3d_model_dir\",\"_kicad_upload_3d_model\",\"_diag_ping\",\"_malloc\",\"_free\"] \
+            -sEXPORTED_FUNCTIONS=[\"_kicad_load_pcb\",\"_kicad_configure_drc\",\"_kicad_run_drc\",\"_kicad_get_drc_results\",\"_kicad_get_pcb_geometry\",\"_kicad_cleanup\",\"_kicad_load_schematic\",\"_kicad_load_schematic_sheet\",\"_kicad_configure_erc\",\"_kicad_run_erc\",\"_kicad_get_erc_results\",\"_kicad_cleanup_schematic\",\"_kicad_export_step\",\"_kicad_set_3d_model_dir\",\"_kicad_upload_3d_model\",\"_kicad_export_dsn\",\"_kicad_import_ses\",\"_kicad_save_pcb\",\"_diag_ping\",\"_malloc\",\"_free\"] \
             -sEXPORTED_RUNTIME_METHODS=[\"ccall\",\"cwrap\",\"UTF8ToString\",\"stringToUTF8\",\"lengthBytesUTF8\"] \
             -O3 \
             -flto \

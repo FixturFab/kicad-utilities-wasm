@@ -128,6 +128,33 @@ export interface KicadWasmModule extends EmscriptenModule {
      * @returns 0 on success, non-zero on error.
      */
     _kicad_upload_3d_model(virtualPathPtr: number, dataPtr: number, size: number): number;
+
+    // --- Specctra DSN/SES API (autorouting workflow) ---
+
+    /**
+     * Export the loaded PCB to Specctra DSN format.
+     * Must call _kicad_load_pcb() first.
+     * @returns Pointer to DSN string (use UTF8ToString), or 0 on error.
+     */
+    _kicad_export_dsn(): number;
+
+    /**
+     * Import a Specctra session (SES) file into the loaded PCB.
+     * Applies routed tracks from the autorouter session to the board.
+     * Must call _kicad_load_pcb() first.
+     * @param contentPtr Pointer to null-terminated SES content string.
+     * @param length Length in bytes (0 = use strlen).
+     * @returns 0 on success, non-zero error code on failure.
+     */
+    _kicad_import_ses(contentPtr: number, length: number): number;
+
+    /**
+     * Save the loaded PCB to KiCad s-expression format (.kicad_pcb).
+     * Useful after importing SES routes to serialize the modified board.
+     * Must call _kicad_load_pcb() first.
+     * @returns Pointer to .kicad_pcb string (use UTF8ToString), or 0 on error.
+     */
+    _kicad_save_pcb(): number;
 }
 
 export interface EmscriptenModule {

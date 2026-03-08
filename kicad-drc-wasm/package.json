@@ -17,6 +17,10 @@
     "./config": {
       "import": "./src/config/index.mjs",
       "types": "./types/kicad-wasm.d.ts"
+    },
+    "./specctra": {
+      "import": "./src/specctra/index.mjs",
+      "types": "./types/kicad-wasm.d.ts"
     }
   },
   "files": [
@@ -25,6 +29,7 @@
     "src/step-export/index.mjs",
     "src/step-export/step-builder.mjs",
     "src/config/index.mjs",
+    "src/specctra/index.mjs",
     "types/kicad-wasm.d.ts"
   ],
   "scripts": {
@@ -46,7 +51,9 @@
     "test:manufacturer-rules": "node test/test-manufacturer-rules.mjs",
     "test:config-persistence": "node test/test-config-persistence.mjs",
     "test:invalid-json": "node test/test-invalid-json.mjs",
-    "test:partial-config": "node test/test-partial-config.mjs"
+    "test:partial-config": "node test/test-partial-config.mjs",
+    "test:specctra": "node test/test-specctra.mjs",
+    "test:specctra-ses": "node test/test-specctra-ses.mjs"
   },
   "license": "GPL-3.0",
   "engines": {

@@ -100,6 +100,32 @@ void kicad_cleanup_schematic(void);
  */
 const char* kicad_get_pcb_geometry(void);
 
+/**
+ * Export the loaded PCB to Specctra DSN format.
+ * Must call kicad_load_pcb() first.
+ * The returned pointer is valid until the next call to this function or kicad_cleanup().
+ * @return DSN string, or NULL on error.
+ */
+const char* kicad_export_dsn(void);
+
+/**
+ * Import a Specctra session (SES) file into the loaded PCB.
+ * Applies routed tracks from the session to the board.
+ * Must call kicad_load_pcb() first.
+ * @param ses_content  SES file content string.
+ * @param length       Length in bytes (0 = use strlen).
+ * @return 0 on success, non-zero error code on failure.
+ */
+int kicad_import_ses(const char* ses_content, size_t length);
+
+/**
+ * Save the loaded PCB to KiCad s-expression format.
+ * Must call kicad_load_pcb() first.
+ * The returned pointer is valid until the next call to this function or kicad_cleanup().
+ * @return .kicad_pcb string, or NULL on error.
+ */
+const char* kicad_save_pcb(void);
+
 #ifdef __cplusplus
 }
 #endif
