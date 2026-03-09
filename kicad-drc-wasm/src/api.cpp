@@ -1644,6 +1644,11 @@ const char* kicad_export_dsn( void )
         fprintf( stderr, "DSN export error: %s\n", e.what() );
         return nullptr;
     }
+    catch( ... )
+    {
+        fprintf( stderr, "DSN export error: unknown exception\n" );
+        return nullptr;
+    }
 }
 
 int kicad_import_ses( const char* ses_content, size_t length )

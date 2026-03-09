@@ -289,7 +289,7 @@
                 const { default: createKicadDRC } = await import('./kicad_drc.mjs');
                 Module = await createKicadDRC({
                     print: (text) => console.log('[WASM]', text),
-                    printErr: () => {},
+                    printErr: (text) => console.warn('[WASM]', text),
                 });
                 await new Promise(r => setTimeout(r, 500));
                 moduleStatus.className = 'status success';
