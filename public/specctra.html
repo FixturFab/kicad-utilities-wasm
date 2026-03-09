@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Specctra DSN/SES — KiCad WASM Tools</title>
+    <script src="coi-serviceworker.js"></script>
+    <link rel="stylesheet" href="shared.css">
+    <style>
+        .workflow-steps {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            background: var(--border);
+            color: var(--text-muted);
+        }
+        .workflow-step.active {
+            background: #dbeafe;
+            color: var(--primary);
+        }
+        .workflow-step.done {
+            background: #dcfce7;
+            color: var(--success);
+        }
+        .workflow-arrow {
+            color: var(--text-muted);
+            font-size: 1.2rem;
+        }
+        .output-area {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            max-height: 300px;
+            overflow: auto;
+            white-space: pre;
+            margin-top: 0.75rem;
+        }
+        .output-stats {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            margin-top: 0.75rem;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+        .output-stats strong {
+            color: var(--text);
+        }
+        .section-label {
+            font-weight: 600;
+            font-size: 1.05rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .section-label .step-num {
+            background: var(--primary);
+            color: white;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+        }
+        .ses-drop-zone {
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            padding: 2rem 1.5rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .ses-drop-zone:hover, .ses-drop-zone.dragover {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+        .download-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Specctra DSN/SES</h1>
+            <p class="subtitle">Export DSN for autorouting, import SES results, download modified PCB</p>
+        </header>
+
+        <div class="card">
+            <div id="module-status" class="status loading">
+                <div class="spinner"></div>
+                <span>Loading WASM module (9.6 MB)...</span>
+            </div>
+
+            <!-- Workflow indicator -->
+            <div class="workflow-steps" id="workflow">
+                <div class="workflow-step" id="ws-load">1. Load PCB</div>
+                <span class="workflow-arrow">&rarr;</span>
+                <div class="workflow-step" id="ws-dsn">2. Export DSN</div>
+                <span class="workflow-arrow">&rarr;</span>
+                <div class="workflow-step" id="ws-ses">3. Import SES</div>
+                <span class="workflow-arrow">&rarr;</span>
+                <div class="workflow-step" id="ws-save">4. Save PCB</div>
+            </div>
+
+            <!-- Step 1: Load PCB -->
+            <div id="step-load">
+                <div class="section-label">
+                    <span class="step-num">1</span>
+                    Load PCB
+                </div>
+                <div class="drop-zone" id="drop-zone">
+                    <div class="drop-zone-icon">📁</div>
+                    <p><strong>Drop your .kicad_pcb file here</strong></p>
+                    <p class="hint">or click to browse</p>
+                    <input type="file" id="file-input" accept=".kicad_pcb">
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-secondary" id="use-sample" disabled>Use Sample PCB</button>
+                </div>
+                <div id="file-info" class="file-info" style="display: none;">
+                    <span class="file-name" id="file-name"></span>
+                    <button class="btn btn-secondary" id="clear-file" style="padding: 0.5rem 1rem;">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 2: DSN Export -->
+        <div id="step-dsn" class="card" style="display: none;">
+            <div class="section-label">
+                <span class="step-num">2</span>
+                Export DSN
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">
+                Export the board to Specctra DSN format for use with an external autorouter (e.g. Freerouting).
+            </p>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="export-dsn">Export DSN</button>
+            </div>
+            <div id="dsn-result" style="display: none;">
+                <div class="output-stats" id="dsn-stats"></div>
+                <div class="download-group" style="margin-top: 0.75rem;">
+                    <button class="btn btn-secondary" id="download-dsn">Download .dsn</button>
+                    <button class="toggle-json" id="toggle-dsn-preview" style="margin-left: 0.5rem;">Show preview</button>
+                </div>
+                <div id="dsn-preview" style="display: none;">
+                    <div class="output-area" id="dsn-output"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 3: SES Import -->
+        <div id="step-ses" class="card" style="display: none;">
+            <div class="section-label">
+                <span class="step-num">3</span>
+                Import SES (Optional)
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">
+                After routing with an autorouter, import the session file (.ses) to apply routes to the board.
+            </p>
+            <div class="ses-drop-zone" id="ses-drop-zone">
+                <p><strong>Drop your .ses file here</strong></p>
+                <p class="hint">or click to browse</p>
+                <input type="file" id="ses-file-input" accept=".ses">
+            </div>
+            <div id="ses-file-info" class="file-info" style="display: none;">
+                <span class="file-name" id="ses-file-name"></span>
+                <button class="btn btn-secondary" id="ses-clear" style="padding: 0.5rem 1rem;">Clear</button>
+            </div>
+            <div class="btn-group" id="ses-btn-group" style="display: none;">
+                <button class="btn btn-primary" id="import-ses">Import SES</button>
+            </div>
+            <div id="ses-result" style="display: none;"></div>
+        </div>
+
+        <!-- Step 4: Save PCB -->
+        <div id="step-save" class="card" style="display: none;">
+            <div class="section-label">
+                <span class="step-num">4</span>
+                Save Modified PCB
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.95rem;">
+                Download the board with imported routes as a .kicad_pcb file.
+            </p>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="save-pcb">Save &amp; Download PCB</button>
+                <button class="toggle-json" id="toggle-pcb-preview" style="margin-left: 0.5rem;">Show preview</button>
+            </div>
+            <div id="pcb-preview" style="display: none;">
+                <div class="output-area" id="pcb-output"></div>
+            </div>
+            <div id="save-result" style="display: none;"></div>
+        </div>
+
+        <footer>
+            <p>
+                Built with <a href="https://www.kicad.org/" target="_blank">KiCad</a> &amp;
+                <a href="https://emscripten.org/" target="_blank">Emscripten</a>
+            </p>
+            <p style="margin-top: 0.5rem;">
+                <a href="https://gitlab.com/henrybtroutman/kicad-cli-wasm" target="_blank">View Source</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="nav.js"></script>
+    <script type="module">
+        let Module = null;
+        let currentPcbContent = null;
+        let currentPcbName = 'board';
+        let dsnContent = null;
+        let sesLoaded = false;
+
+        // DOM refs
+        const moduleStatus = document.getElementById('module-status');
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const useSampleBtn = document.getElementById('use-sample');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const clearFileBtn = document.getElementById('clear-file');
+
+        const stepDsn = document.getElementById('step-dsn');
+        const exportDsnBtn = document.getElementById('export-dsn');
+        const dsnResult = document.getElementById('dsn-result');
+        const dsnStats = document.getElementById('dsn-stats');
+        const downloadDsnBtn = document.getElementById('download-dsn');
+        const toggleDsnPreview = document.getElementById('toggle-dsn-preview');
+        const dsnPreview = document.getElementById('dsn-preview');
+        const dsnOutput = document.getElementById('dsn-output');
+
+        const stepSes = document.getElementById('step-ses');
+        const sesDropZone = document.getElementById('ses-drop-zone');
+        const sesFileInput = document.getElementById('ses-file-input');
+        const sesFileInfo = document.getElementById('ses-file-info');
+        const sesFileName = document.getElementById('ses-file-name');
+        const sesClearBtn = document.getElementById('ses-clear');
+        const sesBtnGroup = document.getElementById('ses-btn-group');
+        const importSesBtn = document.getElementById('import-ses');
+        const sesResult = document.getElementById('ses-result');
+
+        const stepSave = document.getElementById('step-save');
+        const savePcbBtn = document.getElementById('save-pcb');
+        const togglePcbPreview = document.getElementById('toggle-pcb-preview');
+        const pcbPreview = document.getElementById('pcb-preview');
+        const pcbOutput = document.getElementById('pcb-output');
+        const saveResult = document.getElementById('save-result');
+
+        // Workflow steps
+        const wsLoad = document.getElementById('ws-load');
+        const wsDsn = document.getElementById('ws-dsn');
+        const wsSes = document.getElementById('ws-ses');
+        const wsSave = document.getElementById('ws-save');
+
+        function setWorkflow(step) {
+            [wsLoad, wsDsn, wsSes, wsSave].forEach(el => el.className = 'workflow-step');
+            if (step >= 1) wsLoad.classList.add('done');
+            if (step >= 2) wsDsn.classList.add('done');
+            if (step >= 3) wsSes.classList.add('done');
+            if (step >= 4) wsSave.classList.add('done');
+            const active = [null, wsLoad, wsDsn, wsSes, wsSave][step];
+            if (active && step <= 4) active.classList.replace('done', 'active');
+        }
+
+        // Load WASM
+        loadModule();
+
+        async function loadModule() {
+            try {
+                const { default: createKicadDRC } = await import('./kicad_drc.mjs');
+                Module = await createKicadDRC({
+                    print: (text) => console.log('[WASM]', text),
+                    printErr: () => {},
+                });
+                await new Promise(r => setTimeout(r, 500));
+                moduleStatus.className = 'status success';
+                moduleStatus.innerHTML = '<span>WASM module loaded successfully</span>';
+                useSampleBtn.disabled = false;
+            } catch (err) {
+                console.error('Failed to load WASM module:', err);
+                moduleStatus.className = 'status error';
+                moduleStatus.innerHTML = `<span>Failed to load WASM module: ${escapeHtml(err.message)}</span>`;
+            }
+        }
+
+        // Step 1: Load PCB
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handlePcbFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handlePcbFile(e.target.files[0]); });
+
+        async function handlePcbFile(file) {
+            if (!file.name.endsWith('.kicad_pcb')) {
+                alert('Please select a .kicad_pcb file');
+                return;
+            }
+            currentPcbContent = await file.text();
+            currentPcbName = file.name.replace('.kicad_pcb', '');
+            loadPcb(file.name);
+        }
+
+        useSampleBtn.addEventListener('click', async () => {
+            try {
+                useSampleBtn.disabled = true;
+                useSampleBtn.textContent = 'Loading...';
+                const response = await fetch('./sample.kicad_pcb');
+                currentPcbContent = await response.text();
+                currentPcbName = 'sample';
+                loadPcb('sample.kicad_pcb');
+            } catch (err) {
+                alert('Failed to load sample: ' + err.message);
+            } finally {
+                useSampleBtn.disabled = false;
+                useSampleBtn.textContent = 'Use Sample PCB';
+            }
+        });
+
+        function loadPcb(name) {
+            if (!Module || !currentPcbContent) return;
+
+            const len = Module.lengthBytesUTF8(currentPcbContent) + 1;
+            const ptr = Module._malloc(len);
+            Module.stringToUTF8(currentPcbContent, ptr, len);
+            const rc = Module._kicad_load_pcb(ptr, 0);
+            Module._free(ptr);
+
+            if (rc !== 0) {
+                alert('Failed to load PCB (error ' + rc + ')');
+                return;
+            }
+
+            fileName.textContent = name;
+            fileInfo.style.display = 'flex';
+            dropZone.style.display = 'none';
+
+            // Show step 2
+            stepDsn.style.display = 'block';
+            stepSes.style.display = 'none';
+            stepSave.style.display = 'none';
+            dsnResult.style.display = 'none';
+            dsnContent = null;
+            sesLoaded = false;
+            setWorkflow(1);
+        }
+
+        clearFileBtn.addEventListener('click', () => {
+            Module._kicad_cleanup();
+            currentPcbContent = null;
+            fileInput.value = '';
+            fileInfo.style.display = 'none';
+            dropZone.style.display = 'block';
+            stepDsn.style.display = 'none';
+            stepSes.style.display = 'none';
+            stepSave.style.display = 'none';
+            dsnContent = null;
+            sesLoaded = false;
+            setWorkflow(0);
+        });
+
+        // Step 2: Export DSN
+        exportDsnBtn.addEventListener('click', () => {
+            exportDsnBtn.disabled = true;
+            exportDsnBtn.textContent = 'Exporting...';
+
+            try {
+                const ptr = Module._kicad_export_dsn();
+                if (!ptr) throw new Error('DSN export returned null');
+                dsnContent = Module.UTF8ToString(ptr);
+
+                // Parse stats
+                const components = (dsnContent.match(/\(component /g) || []).length;
+                const nets = (dsnContent.match(/\(net /g) || []).length;
+                const padstacks = (dsnContent.match(/\(padstack /g) || []).length;
+                const layers = (dsnContent.match(/\(layer /g) || []).length;
+                const wires = (dsnContent.match(/\(wire /g) || []).length;
+
+                dsnStats.innerHTML = [
+                    `<span><strong>${dsnContent.length.toLocaleString()}</strong> chars</span>`,
+                    `<span><strong>${layers}</strong> layers</span>`,
+                    `<span><strong>${components}</strong> components</span>`,
+                    `<span><strong>${nets}</strong> nets</span>`,
+                    `<span><strong>${padstacks}</strong> padstacks</span>`,
+                    `<span><strong>${wires}</strong> wires</span>`,
+                ].join('');
+
+                dsnOutput.textContent = dsnContent.length > 50000
+                    ? dsnContent.substring(0, 50000) + '\n\n... (truncated)'
+                    : dsnContent;
+                dsnResult.style.display = 'block';
+
+                // Show steps 3 & 4
+                stepSes.style.display = 'block';
+                stepSave.style.display = 'block';
+                setWorkflow(2);
+            } catch (err) {
+                alert('DSN Export Error: ' + err.message);
+            } finally {
+                exportDsnBtn.disabled = false;
+                exportDsnBtn.textContent = 'Export DSN';
+            }
+        });
+
+        downloadDsnBtn.addEventListener('click', () => {
+            if (!dsnContent) return;
+            downloadFile(currentPcbName + '.dsn', dsnContent, 'text/plain');
+        });
+
+        toggleDsnPreview.addEventListener('click', () => {
+            const hidden = dsnPreview.style.display === 'none';
+            dsnPreview.style.display = hidden ? 'block' : 'none';
+            toggleDsnPreview.textContent = hidden ? 'Hide preview' : 'Show preview';
+        });
+
+        // Step 3: SES Import
+        sesDropZone.addEventListener('click', () => sesFileInput.click());
+        sesDropZone.addEventListener('dragover', (e) => { e.preventDefault(); sesDropZone.classList.add('dragover'); });
+        sesDropZone.addEventListener('dragleave', () => sesDropZone.classList.remove('dragover'));
+        sesDropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            sesDropZone.classList.remove('dragover');
+            if (e.dataTransfer.files[0]) handleSesFile(e.dataTransfer.files[0]);
+        });
+        sesFileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleSesFile(e.target.files[0]); });
+
+        let currentSesContent = null;
+
+        async function handleSesFile(file) {
+            if (!file.name.endsWith('.ses')) {
+                alert('Please select a .ses file');
+                return;
+            }
+            currentSesContent = await file.text();
+            sesFileName.textContent = file.name;
+            sesFileInfo.style.display = 'flex';
+            sesDropZone.style.display = 'none';
+            sesBtnGroup.style.display = 'flex';
+            sesResult.style.display = 'none';
+        }
+
+        sesClearBtn.addEventListener('click', () => {
+            currentSesContent = null;
+            sesFileInput.value = '';
+            sesFileInfo.style.display = 'none';
+            sesDropZone.style.display = 'block';
+            sesBtnGroup.style.display = 'none';
+            sesResult.style.display = 'none';
+        });
+
+        importSesBtn.addEventListener('click', () => {
+            if (!currentSesContent) return;
+            importSesBtn.disabled = true;
+            importSesBtn.textContent = 'Importing...';
+
+            try {
+                const len = Module.lengthBytesUTF8(currentSesContent) + 1;
+                const ptr = Module._malloc(len);
+                Module.stringToUTF8(currentSesContent, ptr, len);
+                const rc = Module._kicad_import_ses(ptr, 0);
+                Module._free(ptr);
+
+                if (rc !== 0) throw new Error('SES import failed (error ' + rc + ')');
+
+                sesLoaded = true;
+                sesResult.style.display = 'block';
+                sesResult.innerHTML = '<div class="status success"><span>SES imported successfully — routes applied to board</span></div>';
+                setWorkflow(3);
+            } catch (err) {
+                sesResult.style.display = 'block';
+                sesResult.innerHTML = `<div class="status error"><span>${escapeHtml(err.message)}</span></div>`;
+            } finally {
+                importSesBtn.disabled = false;
+                importSesBtn.textContent = 'Import SES';
+            }
+        });
+
+        // Step 4: Save PCB
+        savePcbBtn.addEventListener('click', () => {
+            savePcbBtn.disabled = true;
+            savePcbBtn.textContent = 'Saving...';
+
+            try {
+                const ptr = Module._kicad_save_pcb();
+                if (!ptr) throw new Error('Save PCB returned null');
+                const pcbStr = Module.UTF8ToString(ptr);
+
+                pcbOutput.textContent = pcbStr.length > 50000
+                    ? pcbStr.substring(0, 50000) + '\n\n... (truncated)'
+                    : pcbStr;
+
+                downloadFile(currentPcbName + '-routed.kicad_pcb', pcbStr, 'text/plain');
+
+                saveResult.style.display = 'block';
+                saveResult.innerHTML = `<div class="status success"><span>PCB saved (${pcbStr.length.toLocaleString()} chars) — download started</span></div>`;
+                setWorkflow(4);
+            } catch (err) {
+                saveResult.style.display = 'block';
+                saveResult.innerHTML = `<div class="status error"><span>${escapeHtml(err.message)}</span></div>`;
+            } finally {
+                savePcbBtn.disabled = false;
+                savePcbBtn.textContent = 'Save & Download PCB';
+            }
+        });
+
+        togglePcbPreview.addEventListener('click', () => {
+            const hidden = pcbPreview.style.display === 'none';
+            pcbPreview.style.display = hidden ? 'block' : 'none';
+            togglePcbPreview.textContent = hidden ? 'Hide preview' : 'Show preview';
+        });
+
+        // Helpers
+        function downloadFile(name, content, type) {
+            const blob = new Blob([content], { type });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

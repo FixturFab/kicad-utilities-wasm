@@ -3,7 +3,8 @@
         { href: 'index.html', label: 'Overview' },
         { href: 'drc.html', label: 'DRC' },
         { href: 'erc.html', label: 'ERC' },
-        { href: 'step.html', label: 'STEP Export' }
+        { href: 'step.html', label: 'STEP Export' },
+        { href: 'specctra.html', label: 'Specctra' }
     ];
 
     const currentPage = location.pathname.split('/').pop() || 'index.html';
