@@ -1,6 +1,6 @@
-# KiCad CLI WebAssembly
+# KiCad WASM Utilities
 
-Porting KiCad's CLI validation tools (DRC, ERC) to WebAssembly for browser/Node.js execution.
+KiCad validation and export tools (DRC, ERC, STEP, Specctra) compiled to WebAssembly for browser/Node.js execution.
 
 ## Quick Start
 

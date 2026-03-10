@@ -1,7 +1,21 @@
 {
-  "name": "@anthropic/kicad-wasm",
+  "name": "kicad-wasm-utilities",
   "version": "0.1.0",
-  "description": "KiCad DRC and ERC validation via WebAssembly",
+  "description": "KiCad PCB/schematic validation, STEP export, and Specctra DSN/SES via WebAssembly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/kicad-wasm-utilities"
+  },
+  "keywords": [
+    "kicad",
+    "pcb",
+    "wasm",
+    "webassembly",
+    "drc",
+    "erc",
+    "step",
+    "specctra"
+  ],
   "type": "module",
   "main": "build-wasm-erc/kicad_drc.mjs",
   "types": "types/kicad-wasm.d.ts",
@@ -33,7 +47,10 @@
     "types/kicad-wasm.d.ts"
   ],
   "scripts": {
+    "build:release": "node ../scripts/build-releases.mjs",
+    "serve": "node ../serve-local.mjs",
     "test": "node test/test-erc-suite.mjs",
+    "test:all": "npm run test && npm run test:drc-config && npm run test:specctra",
     "test:erc": "node test/test-erc.mjs",
     "test:erc-hierarchical": "node test/test-erc-hierarchical.mjs",
     "test:step-geometry": "node test/test-step-geometry.mjs",

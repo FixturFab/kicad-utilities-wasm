@@ -1,17 +1,32 @@
-# KiCad DRC WASM
+# KiCad WASM Utilities
 
-Run KiCad design rule checks in the browser or Node.js via WebAssembly.
+KiCad PCB and schematic tools running in the browser or Node.js via WebAssembly.
 
-This project compiles KiCad's DRC (Design Rule Check) engine to WebAssembly, enabling PCB design rule validation without a native KiCad installation.
+This project compiles KiCad's validation and export tools to WebAssembly, enabling PCB/schematic design checks and 3D export without a native KiCad installation.
 
-**[Try the Live Demo](https://henrybtroutman.gitlab.io/kicad-cli-wasm/)**
+**[Try the Live Demo](https://anthropics.github.io/kicad-wasm-utilities/)**
 
 ## Features
 
+### DRC (Design Rule Check)
 - **26 DRC test providers** — clearance, track width, hole size, annular width, silk/mask, courtyard, connectivity, and more
 - **JSON output** following the [`schemas.kicad.org/drc.v1.json`](https://schemas.kicad.org/drc.v1.json) schema
+
+### ERC (Electrical Rules Check)
+- **42 ERC violation types** — pin conflicts, power integrity, unconnected nets, hierarchical sheet validation
+- **JSON output** following the [`schemas.kicad.org/erc.v1.json`](https://schemas.kicad.org/erc.v1.json) schema
+
+### STEP Export
+- **3D STEP model generation** from PCB layouts using OCCT
+- **Board geometry extraction** — stackup, drill holes, component positions
+
+### Specctra DSN/SES
+- **DSN export** for autorouter integration
+- **SES import** to apply routed tracks back to PCB
+
+### Common
 - **Multi-threaded** via WebAssembly pthreads (SharedArrayBuffer)
-- **7.3 MB** optimized WASM binary (-O3 -flto)
+- **~7 MB** optimized WASM binary (-O3 -flto)
 - Runs in **Node.js** and **browser** environments
 
 ## Quick Start

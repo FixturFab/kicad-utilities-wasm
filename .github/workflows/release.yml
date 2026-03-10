@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build release bundles
+        run: node scripts/build-releases.mjs
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: KiCad WASM Utilities v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## KiCad WASM Utilities v${{ steps.get_version.outputs.VERSION }}
+
+            KiCad PCB and schematic tools running in the browser or Node.js via WebAssembly.
+
+            ### Features
+            - **DRC** - Design Rule Check for PCB layouts (26 test providers)
+            - **ERC** - Electrical Rules Check for schematics (42 violation types)
+            - **STEP Export** - Generate 3D STEP models from PCB
+            - **Specctra DSN/SES** - Autorouter integration
+
+            ### Downloads
+            - `kicad-wasm-utilities-*.zip` - Full package with all features
+            - `kicad-wasm-drc-*.zip` - DRC feature only
+            - `kicad-wasm-erc-*.zip` - ERC feature only
+            - `kicad-wasm-step-*.zip` - STEP export only
+            - `kicad-wasm-specctra-*.zip` - Specctra DSN/SES only
+
+            ### Requirements
+            - Node.js 18+ or modern browser with WebAssembly support
+            - For browser: Serve with COOP/COEP headers for SharedArrayBuffer
+
+            ### License
+            GPL-3.0 (based on KiCad source code)
+          files: |
+            dist/*.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
