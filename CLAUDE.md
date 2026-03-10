@@ -19,27 +19,19 @@ node test/node-test.js
 
 ```
 kicad-cli-wasm/
-├── src/
-│   ├── api.cpp              # WASM API exports (kicad_load_*, kicad_run_*)
-│   ├── kiplatform_wasm.cpp  # Platform stubs for WASM
-│   └── pgm_base_wasm.cpp    # Program base stubs
-├── stubs/
-│   └── wx/                  # wxWidgets compatibility stubs
-├── kicad-src/               # KiCad source checkout (submodule or clone)
-├── build-wasm/              # WASM build directory
-├── test/                    # Node.js test files
-├── PRD.md                   # DRC implementation (active)
-├── PRD-ERC.md               # ERC implementation (pending DRC completion)
-└── progress.txt             # Iteration progress log
+├── kicad-drc-wasm/
+│   ├── src/api.cpp          # WASM API exports (kicad_load_*, kicad_run_*)
+│   ├── src/config/          # JS configuration helpers
+│   ├── src/specctra/        # Specctra DSN/SES helpers
+│   ├── src/step-export/     # STEP export helpers
+│   ├── stubs/wx/            # wxWidgets compatibility stubs
+│   ├── test/                # Node.js test files
+│   └── types/               # TypeScript definitions
+├── public/                  # Demo pages (GitHub Pages)
+├── scripts/                 # Build and release scripts
+├── docs/internal/           # Archived development docs
+└── kicad-src/               # KiCad source checkout (for building)
 ```
-
-## Current Work
-
-**Active**: PRD.md (DRC - Design Rules Check for PCB)
-
-**Pending**: PRD-ERC.md (ERC - Electrical Rules Check for schematics)
-- Prerequisite: DRC must reach Stage 5g (Node.js testing complete)
-- When ready: Archive PRD.md, rename PRD-ERC.md to PRD.md
 
 ## Architecture
 
@@ -79,11 +71,11 @@ kicad_get_erc_results(): string; // JSON
 
 | File | Purpose |
 |------|---------|
-| `src/api.cpp` | WASM exported functions |
-| `CMakeLists.txt` | Build configuration |
-| `stubs/wx/*.h` | wxWidgets stub implementations |
-| `what-doesnt-work.md` | Known issues and workarounds |
-| `DEPENDENCY_ANALYSIS.md` | KiCad dependency mapping |
+| `kicad-drc-wasm/src/api.cpp` | WASM exported functions |
+| `kicad-drc-wasm/CMakeLists.txt` | Build configuration |
+| `kicad-drc-wasm/stubs/wx/*.h` | wxWidgets stub implementations |
+| `docs/internal/what-doesnt-work.md` | Known issues and workarounds |
+| `docs/internal/DEPENDENCY_ANALYSIS.md` | KiCad dependency mapping |
 
 ## Build Notes
 
