@@ -4,7 +4,7 @@
   "description": "KiCad PCB/schematic validation, STEP export, and Specctra DSN/SES via WebAssembly",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/kicad-wasm-utilities"
+    "url": "https://github.com/FixturFab/kicad-utilities-wasm"
   },
   "keywords": [
     "kicad",
