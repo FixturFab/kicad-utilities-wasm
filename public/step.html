@@ -127,6 +127,22 @@
             font-size: 0.9rem;
             cursor: pointer;
         }
+        .viewer-toolbar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+        .viewer-toolbar select {
+            padding: 0.35rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
     </style>
     <script type="importmap">
     {
@@ -240,6 +256,10 @@
 
         <div id="viewer-card" class="card" style="display: none;">
             <h2 style="font-size: 1.25rem; margin-bottom: 1rem;">3D Preview</h2>
+            <div class="viewer-toolbar">
+                <label for="material-select">Material:</label>
+                <select id="material-select"></select>
+            </div>
             <div id="viewer-container">
                 <div class="viewer-hint" id="viewer-hint">Click and drag to rotate</div>
             </div>
@@ -268,6 +288,8 @@
     <script type="module">
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+        import { MATERIAL_PRESETS, materialParamsForPreset, classifyMeshRole } from './materials.mjs';
 
         // ── State ──
         let Module = null;
@@ -277,6 +299,8 @@
         let stepData = null;    // STEP file string
         let boardLoaded = false;
         let scene, camera, renderer, controls;
+        let previewGroup = null;
+        let currentPreset = 'original';
 
         // 3D model state: Map<uniqueModelBasename, { virtualPath, loaded }>>
         let requiredModels = new Map();
@@ -312,6 +336,83 @@
         const includeZonesCb = document.getElementById('include-zones');
         const includeSilkscreenCb = document.getElementById('include-silkscreen');
         const includeComponentsCb = document.getElementById('include-components');
+        const materialSelect = document.getElementById('material-select');
+
+        // ── Material presets ──
+        for (const preset of MATERIAL_PRESETS) {
+            const opt = document.createElement('option');
+            opt.value = preset.id;
+            opt.textContent = preset.label;
+            materialSelect.appendChild(opt);
+        }
+
+        function makeMaterial(presetId, faceColor, role = 'body') {
+            const spec = materialParamsForPreset(presetId, faceColor, {
+                thicknessMm: geometryData?.board?.thickness_mm ?? 1.6,
+                role,
+            });
+            const p = spec.params;
+            const color = new THREE.Color(...p.color);
+
+            if (spec.type === 'phong') {
+                return new THREE.MeshPhongMaterial({ color, side: THREE.FrontSide });
+            }
+
+            const mat = new THREE.MeshPhysicalMaterial({
+                color,
+                roughness: p.roughness,
+                metalness: p.metalness ?? 0,
+                side: p.doubleSided ? THREE.DoubleSide : THREE.FrontSide,
+            });
+            if (p.transmission != null) {
+                mat.transmission = p.transmission;
+                mat.ior = p.ior;
+                mat.thickness = p.thickness;
+            }
+            return mat;
+        }
+
+        function applyEnvironmentForPreset(presetId) {
+            if (!scene) return;
+            scene.environmentIntensity =
+                materialParamsForPreset(presetId).environmentIntensity ?? 1;
+        }
+
+        // Engraving placement is preset-dependent: sunk into a transmissive
+        // body (rendered via the transmission pass), proud of an opaque one.
+        function engravingPositionZ(presetId, userData) {
+            const insetMm = materialParamsForPreset(presetId, null, { role: 'engraving' }).insetMm ?? 0;
+            const { surfaceZ, surfaceSign, planeZ } = userData;
+            const targetZ = surfaceZ - surfaceSign * (insetMm > 0 ? insetMm : -0.01);
+            return targetZ - planeZ;
+        }
+
+        function updateEngravingPositions(presetId) {
+            if (!previewGroup) return;
+            previewGroup.traverse((obj) => {
+                if (obj.isMesh && obj.userData.role === 'engraving' && obj.userData.surfaceZ != null) {
+                    obj.position.z = engravingPositionZ(presetId, obj.userData);
+                }
+            });
+        }
+
+        function applyMaterialPreset(presetId) {
+            currentPreset = presetId;
+            if (materialSelect.value !== presetId) materialSelect.value = presetId;
+            applyEnvironmentForPreset(presetId);
+            updateEngravingPositions(presetId);
+            if (!previewGroup) return;
+            previewGroup.traverse((obj) => {
+                if (obj.isMesh) {
+                    obj.material.dispose();
+                    obj.material = makeMaterial(presetId, obj.userData.faceColor, obj.userData.role);
+                }
+            });
+        }
+
+        materialSelect.addEventListener('change', () => {
+            applyMaterialPreset(materialSelect.value);
+        });
 
         // ── Version banner ──
         const DEMO_VERSION = '2026-03-06-single-thread';
@@ -657,7 +758,38 @@
         function buildPreviewFromStep(occtResult) {
             const group = new THREE.Group();
 
-            for (const mesh of occtResult.meshes) {
+            // Pass 1: z-extent per solid. Planar solids are silkscreen
+            // (KiCad exports silk as zero-thickness faces); the thickest
+            // solid is the board body, whose surfaces silk gets nudged onto.
+            const meshInfo = occtResult.meshes.map((mesh) => {
+                const pos = mesh.attributes.position.array;
+                let zMin = Infinity, zMax = -Infinity;
+                for (let i = 2; i < pos.length; i += 3) {
+                    if (pos[i] < zMin) zMin = pos[i];
+                    if (pos[i] > zMax) zMax = pos[i];
+                }
+                const role = classifyMeshRole({ name: mesh.name, thicknessZ: zMax - zMin });
+                return { zMin, zMax, role };
+            });
+            let board = null;
+            for (const info of meshInfo) {
+                if (!board || (info.zMax - info.zMin) > (board.zMax - board.zMin)) board = info;
+            }
+
+            for (const [meshIdx, mesh] of occtResult.meshes.entries()) {
+                const { zMin: meshZMin, role } = meshInfo[meshIdx];
+                // Silk gets re-homed onto the nearest board face; the exact
+                // depth (sunk vs proud) is preset-dependent
+                let engraveData = null;
+                if (role === 'engraving' && board) {
+                    const midZ = (board.zMin + board.zMax) / 2;
+                    const top = meshZMin >= midZ;
+                    engraveData = {
+                        surfaceZ: top ? board.zMax : board.zMin,
+                        surfaceSign: top ? 1 : -1,
+                        planeZ: meshZMin,
+                    };
+                }
                 const positions = new Float32Array(mesh.attributes.position.array);
                 const normals = mesh.attributes.normal
                     ? new Float32Array(mesh.attributes.normal.array)
@@ -723,13 +855,14 @@
                     }
                     geom.setIndex(newIndices);
 
-                    const [r, g, b] = grp.color;
-                    const mat = new THREE.MeshPhongMaterial({
-                        color: new THREE.Color(r, g, b),
-                        side: THREE.FrontSide,
-                    });
-
-                    group.add(new THREE.Mesh(geom, mat));
+                    const threeMesh = new THREE.Mesh(geom, makeMaterial(currentPreset, grp.color, role));
+                    threeMesh.userData.faceColor = grp.color;
+                    threeMesh.userData.role = role;
+                    if (engraveData) {
+                        Object.assign(threeMesh.userData, engraveData);
+                        threeMesh.position.z = engravingPositionZ(currentPreset, threeMesh.userData);
+                    }
+                    group.add(threeMesh);
                 }
             }
 
@@ -751,7 +884,14 @@
             renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
             renderer.setSize(viewerContainer.clientWidth, viewerContainer.clientHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
             viewerContainer.appendChild(renderer.domElement);
+
+            // Environment lighting — required for transmissive materials to
+            // read as "clear" rather than flat grey
+            const pmrem = new THREE.PMREMGenerator(renderer);
+            scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+            pmrem.dispose();
 
             // Lights
             scene.add(new THREE.AmbientLight(0x404040, 2));
@@ -780,6 +920,26 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(w, h);
             });
+        }
+
+        // Reference grid under the board — gives transmissive materials
+        // something to refract so "clear" actually reads as clear
+        let referenceGrid = null;
+        function updateReferenceGrid(object) {
+            if (referenceGrid) {
+                scene.remove(referenceGrid);
+                referenceGrid.geometry.dispose();
+                referenceGrid.material.dispose();
+                referenceGrid = null;
+            }
+            const box = new THREE.Box3().setFromObject(object);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const extent = (Math.max(size.x, size.y) || 40) * 2.5;
+            referenceGrid = new THREE.GridHelper(extent, 24, 0x64748b, 0x334155);
+            referenceGrid.rotation.x = Math.PI / 2; // boards lie in the XY plane
+            referenceGrid.position.set(center.x, center.y, box.min.z - Math.max(size.z * 2, 3));
+            scene.add(referenceGrid);
         }
 
         function fitCamera(object) {
@@ -877,8 +1037,10 @@
                         const occtResult = occt.ReadStepFile(stepBytes, null);
 
                         if (occtResult.success && occtResult.meshes.length > 0) {
-                            const previewGroup = buildPreviewFromStep(occtResult);
+                            previewGroup = buildPreviewFromStep(occtResult);
                             scene.add(previewGroup);
+                            updateReferenceGrid(previewGroup);
+                            applyEnvironmentForPreset(currentPreset);
                             fitCamera(previewGroup);
                             console.log(`3D preview: ${occtResult.meshes.length} meshes`);
                         } else {
@@ -919,6 +1081,28 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         });
+
+        // ── Test hook: lets Playwright exercise the viewer and material
+        // presets without running the (slow) WASM STEP export ──
+        window.__stepDemo = {
+            injectPreview(occtResult) {
+                viewerCard.style.display = 'block';
+                if (!renderer) setupViewer();
+                while (scene.children.length > 3) scene.remove(scene.children[scene.children.length - 1]);
+                previewGroup = buildPreviewFromStep(occtResult);
+                scene.add(previewGroup);
+                updateReferenceGrid(previewGroup);
+                applyEnvironmentForPreset(currentPreset);
+                fitCamera(previewGroup);
+            },
+            applyMaterialPreset,
+            renderOnce() { renderer.render(scene, camera); },
+            get scene() { return scene; },
+            get previewGroup() { return previewGroup; },
+            get stepData() { return stepData; },
+            get camera() { return camera; },
+            get controls() { return controls; },
+        };
     </script>
 </body>
 </html>

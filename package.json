@@ -1,0 +1,14 @@
+{
+  "name": "kicad-wasm-utilities",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "node serve-local.mjs",
+    "test:unit": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "vitest": "^3.1.0"
+  }
+}
