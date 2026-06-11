@@ -4,7 +4,7 @@ KiCad PCB and schematic tools running in the browser or Node.js via WebAssembly.
 
 This project compiles KiCad's validation and export tools to WebAssembly, enabling PCB/schematic design checks and 3D export without a native KiCad installation.
 
-**[Try the Live Demo](https://anthropics.github.io/kicad-wasm-utilities/)**
+**[Try the Live Demo](https://fixturfab.github.io/kicad-utilities-wasm/)**
 
 ## Features
 
