@@ -18,6 +18,13 @@ jobs:
         with:
           node-version: '20'
 
+      # Release bundles pull the WASM binary from build-wasm-erc/ (gitignored
+      # emsdk build output); stage the committed demo binary from public/
+      - name: Stage WASM binary
+        run: |
+          mkdir -p kicad-drc-wasm/build-wasm-erc
+          cp public/kicad_drc.mjs public/kicad_drc.wasm kicad-drc-wasm/build-wasm-erc/
+
       - name: Build release bundles
         run: node scripts/build-releases.mjs
 

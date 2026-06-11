@@ -19,6 +19,15 @@ jobs:
         with:
           node-version: '20'
 
+      # Tests and release bundles expect the WASM binary at
+      # kicad-drc-wasm/build-wasm-erc/, which is a (gitignored) emsdk build
+      # output. CI can't run that toolchain, so stage the committed demo
+      # binary from public/ instead — it's the same single-threaded build.
+      - name: Stage WASM binary
+        run: |
+          mkdir -p kicad-drc-wasm/build-wasm-erc
+          cp public/kicad_drc.mjs public/kicad_drc.wasm kicad-drc-wasm/build-wasm-erc/
+
       - name: Run tests
         working-directory: kicad-drc-wasm
         run: |
