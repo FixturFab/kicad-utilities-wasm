@@ -220,6 +220,127 @@ test('silk meshes are nudged flush onto the board surface', async ({ page }) => 
     expect(z).toBeLessThan(1.63);
 });
 
+// Engraved-STEP fixture: one solid body whose faces include a group painted
+// with the engrave marker color (recess faces cut by the WASM post-process).
+const FAKE_OCCT_ENGRAVED = {
+    success: true,
+    meshes: [
+        {
+            name: '_PCB',
+            attributes: { position: { array: [
+                0, 0, 0, 30, 0, 0, 30, 20, 0, 0, 20, 0,
+                0, 0, 1.6, 30, 0, 1.6, 30, 20, 1.6, 0, 20, 1.6,
+            ] } },
+            index: { array: [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7] },
+            color: [0.08, 0.2, 0.14],
+            // triangles 2..3 (the top face) carry the recess marker color
+            brep_faces: [{ first: 2, last: 4, color: [0.92, 0.92, 0.92] }],
+        },
+    ],
+};
+
+test('recess-colored face groups are styled as engraving without repositioning', async ({ page }) => {
+    await page.evaluate((occt) => window.__stepDemo.injectPreview(occt), FAKE_OCCT_ENGRAVED);
+    await page.selectOption('#material-select', 'clear-acrylic');
+
+    const meshes = await page.evaluate(() => {
+        const out = [];
+        window.__stepDemo.previewGroup.traverse((o) => {
+            if (o.isMesh) out.push({
+                role: o.userData.role,
+                posZ: o.position.z,
+                transmission: o.material.transmission ?? null,
+                roughness: o.material.roughness ?? null,
+            });
+        });
+        return out;
+    });
+    const recess = meshes.find((m) => m.role === 'engraving');
+    const body = meshes.find((m) => m.role === 'body');
+    expect(recess).toBeTruthy();
+    expect(body).toBeTruthy();
+    // recess faces are part of the solid — never nudged
+    expect(recess.posZ).toBe(0);
+    // styled as frosted engraving, not glass
+    expect(recess.transmission ?? 0).toBe(0);
+    expect(recess.roughness).toBeGreaterThanOrEqual(0.7);
+    expect(body.transmission).toBe(1);
+});
+
+// Engraved-STEP fixture with a standalone plug product: a marker-colored
+// thin solid sitting in the body's top surface (what the WASM engrave
+// post-process emits as "ENGRAVING" products).
+const FAKE_OCCT_WITH_PLUG = {
+    success: true,
+    meshes: [
+        FAKE_OCCT_ENGRAVED.meshes[0],
+        {
+            name: 'ENGRAVING',
+            attributes: { position: { array: [
+                5, 5, 1.5, 12, 5, 1.5, 12, 8, 1.5, 5, 8, 1.5,
+                5, 5, 1.6, 12, 5, 1.6, 12, 8, 1.6, 5, 8, 1.6,
+            ] } },
+            index: { array: [0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7] },
+            color: [0.92, 0.92, 0.92],
+            brep_faces: [],
+        },
+    ],
+};
+
+test('standalone engraving plugs render as frosted translucent glass on clear acrylic', async ({ page }) => {
+    await page.evaluate((occt) => window.__stepDemo.injectPreview(occt), FAKE_OCCT_WITH_PLUG);
+
+    const plug = () => page.evaluate(() => {
+        let p = null;
+        window.__stepDemo.previewGroup.traverse((o) => {
+            if (o.isMesh && o.userData.role === 'engraving-plug') {
+                p = {
+                    posZ: o.position.z,
+                    transmission: o.material.transmission ?? 0,
+                    roughness: o.material.roughness ?? null,
+                    colorR: o.material.color.r,
+                };
+            }
+        });
+        return p;
+    });
+
+    await page.selectOption('#material-select', 'clear-acrylic');
+    const clear = await plug();
+    expect(clear).not.toBeNull();
+    expect(clear.posZ).toBe(0);                       // stays flush in its recess
+    expect(clear.transmission).toBeGreaterThanOrEqual(0.3); // milky-translucent
+    expect(clear.transmission).toBeLessThanOrEqual(0.7);
+    expect(clear.roughness).toBeGreaterThanOrEqual(0.4);    // frosted
+
+    await page.selectOption('#material-select', 'matte-black');
+    const matte = await plug();
+    expect(matte.posZ).toBe(0);
+    expect(matte.transmission).toBe(0);               // opaque grey on matte
+    expect(matte.colorR).toBeCloseTo(0.45, 1);
+});
+
+test('engrave controls exist and follow the silkscreen checkbox', async ({ page }) => {
+    const engraveCb = page.locator('#engrave-silkscreen');
+    const depthInput = page.locator('#engrave-depth');
+    await expect(engraveCb).toHaveCount(1);
+    await expect(depthInput).toHaveCount(1);
+
+    // disabled until silkscreen export is enabled (controls live in the
+    // hidden stats card pre-load, so drive the checkbox programmatically)
+    const setSilk = (checked) => page.evaluate((c) => {
+        const cb = document.getElementById('include-silkscreen');
+        cb.checked = c;
+        cb.dispatchEvent(new Event('change'));
+    }, checked);
+
+    await expect(engraveCb).toBeDisabled();
+    await setSilk(true);
+    await expect(engraveCb).toBeEnabled();
+    await setSilk(false);
+    await expect(engraveCb).toBeDisabled();
+});
+
 test('chosen preset persists when the preview is rebuilt', async ({ page }) => {
     await injectPreview(page);
     await page.selectOption('#material-select', 'matte-black');

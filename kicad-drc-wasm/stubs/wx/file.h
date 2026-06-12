@@ -111,10 +111,13 @@ class wxFFile
 {
 public:
     wxFFile() : m_fp(nullptr) {}
+    // Attach to an already-open FILE* (not closed on destruction if Detach()ed)
+    explicit wxFFile(FILE* fp) : m_fp(fp) {}
     wxFFile(const wxString& filename, const wxString& mode = wxString("r")) {
         Open(filename, mode);
     }
     ~wxFFile() { Close(); }
+    void Detach() { m_fp = nullptr; }
 
     bool Open(const wxString& filename, const wxString& mode = wxString("r")) {
         m_fp = fopen(filename.c_str(), mode.c_str());

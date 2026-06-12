@@ -38,6 +38,21 @@ export function classifyMeshRole(mesh) {
 }
 
 /**
+ * Marker color the WASM engrave post-process paints onto recess faces cut
+ * into the board body (see kicad-drc-wasm/src/step_engrave.cpp). Face groups
+ * matching this color are styled as engraving even though they belong to the
+ * solid body mesh.
+ */
+export const ENGRAVING_FACE_COLOR = [0.92, 0.92, 0.92];
+
+const ENGRAVING_COLOR_EPS = 0.01;
+
+export function isEngravingFaceColor(color) {
+    if (!color || color.length !== 3) return false;
+    return color.every((c, i) => Math.abs(c - ENGRAVING_FACE_COLOR[i]) < ENGRAVING_COLOR_EPS);
+}
+
+/**
  * @param {string} presetId - one of MATERIAL_PRESETS[].id
  * @param {[number,number,number]|null} faceColor - original STEP face color (0..1)
  * @param {{thicknessMm?: number, role?: 'body'|'engraving'}} opts - board
@@ -48,7 +63,30 @@ export function classifyMeshRole(mesh) {
 export function materialParamsForPreset(presetId, faceColor, opts = {}) {
     const { thicknessMm = 1.6, role = 'body' } = opts;
 
-    if (role === 'engraving' && presetId !== 'original') {
+    // Standalone engraving plug solids (the removed volume, emitted by the
+    // WASM engrave post-process). On clear acrylic they render as frosted
+    // translucent glass: transmissive materials are excluded from three.js's
+    // transmission buffer, so the surrounding glass can't ghost them.
+    if (role === 'engraving-plug' && presetId === 'clear-acrylic') {
+        return {
+            type: 'physical',
+            environmentIntensity: 0.2,
+            params: {
+                color: [1, 1, 1],
+                // milky blend, tuned visually: 55% diffuse white scatter so
+                // the marks read against dark backdrops, 45% transmission so
+                // they stay translucent
+                transmission: 0.45,
+                ior: 1.49,
+                roughness: 0.55,
+                metalness: 0,
+                thickness: 0.5,
+                polygonOffset: true,
+            },
+        };
+    }
+
+    if ((role === 'engraving' || role === 'engraving-plug') && presetId !== 'original') {
         switch (presetId) {
             case 'clear-acrylic':
                 // Laser engraving frosts acrylic: opaque, diffuse, near-white.
@@ -65,6 +103,9 @@ export function materialParamsForPreset(presetId, faceColor, opts = {}) {
                         roughness: 0.85,
                         metalness: 0,
                         doubleSided: true,
+                        // engraved-STEP recess overlays are coplanar with the
+                        // body surface; offset wins the depth fight
+                        polygonOffset: true,
                     },
                 };
             case 'matte-black':
@@ -77,6 +118,7 @@ export function materialParamsForPreset(presetId, faceColor, opts = {}) {
                         roughness: 0.9,
                         metalness: 0,
                         doubleSided: true,
+                        polygonOffset: true,
                     },
                 };
             default:

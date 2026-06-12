@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { MATERIAL_PRESETS, materialParamsForPreset, classifyMeshRole } from '../../public/materials.mjs';
+import {
+    MATERIAL_PRESETS, materialParamsForPreset, classifyMeshRole,
+    ENGRAVING_FACE_COLOR, isEngravingFaceColor,
+} from '../../public/materials.mjs';
 
 describe('MATERIAL_PRESETS', () => {
     it('exposes original, clear-acrylic, and matte-black presets', () => {
@@ -101,6 +104,23 @@ describe('classifyMeshRole', () => {
     });
 });
 
+describe('isEngravingFaceColor', () => {
+    // The WASM engrave post-process colors recess faces ENGRAVING_FACE_COLOR
+    // so the viewer can classify them; STEP round-trips colors with small
+    // precision loss, so matching needs a tolerance.
+    it('matches the marker color exactly and within tolerance', () => {
+        expect(isEngravingFaceColor(ENGRAVING_FACE_COLOR)).toBe(true);
+        expect(isEngravingFaceColor(ENGRAVING_FACE_COLOR.map(c => c + 0.004))).toBe(true);
+    });
+
+    it('rejects board, pad, and silk colors', () => {
+        expect(isEngravingFaceColor([0.08, 0.2, 0.14])).toBe(false);  // mask green
+        expect(isEngravingFaceColor([0.8, 0.8, 0.8])).toBe(false);    // default grey
+        expect(isEngravingFaceColor([1, 1, 1])).toBe(false);          // pure white silk
+        expect(isEngravingFaceColor(null)).toBe(false);
+    });
+});
+
 describe('engraving materials (role: engraving)', () => {
     it('clear acrylic engraving is frosted — rough, opaque, near-white', () => {
         const spec = materialParamsForPreset('clear-acrylic', [1, 1, 1], { role: 'engraving' });
@@ -130,6 +150,33 @@ describe('engraving materials (role: engraving)', () => {
     it('matte black engraving sits on the surface, not inside the opaque body', () => {
         const spec = materialParamsForPreset('matte-black', null, { role: 'engraving' });
         expect(spec.insetMm ?? 0).toBeLessThanOrEqual(0);
+    });
+
+    it('engraving materials use polygon offset — engraved-STEP recess overlays are coplanar with the body', () => {
+        for (const preset of ['clear-acrylic', 'matte-black']) {
+            for (const role of ['engraving', 'engraving-plug']) {
+                const spec = materialParamsForPreset(preset, null, { role });
+                expect(spec.params.polygonOffset).toBe(true);
+            }
+        }
+    });
+
+    it('clear acrylic plugs are milky frosted glass — partially transmissive (any transmission keeps them out of the ghosting-prone transmission buffer)', () => {
+        const spec = materialParamsForPreset('clear-acrylic', null, { role: 'engraving-plug' });
+        expect(spec.type).toBe('physical');
+        // milky blend: enough diffuse to read as white marks, enough
+        // transmission to stay translucent (tuned visually at 0.45)
+        expect(spec.params.transmission).toBeGreaterThanOrEqual(0.3);
+        expect(spec.params.transmission).toBeLessThanOrEqual(0.7);
+        expect(spec.params.roughness).toBeGreaterThanOrEqual(0.4); // frosted, not clear
+        expect(spec.params.roughness).toBeLessThanOrEqual(0.8);
+    });
+
+    it('matte black plugs match the surface engraving treatment', () => {
+        const plug = materialParamsForPreset('matte-black', null, { role: 'engraving-plug' });
+        const surface = materialParamsForPreset('matte-black', null, { role: 'engraving' });
+        expect(plug.params.color).toEqual(surface.params.color);
+        expect(plug.params.transmission ?? 0).toBe(0);
     });
 
     it('original preset leaves engraving meshes with their STEP color', () => {

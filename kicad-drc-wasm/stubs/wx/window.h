@@ -60,7 +60,10 @@ public:
     wxSize FromDIP(const wxSize& sz) const { return sz; }
     wxPoint FromDIP(const wxPoint& pt) const { return pt; }
     static int ToDIP(int d, const wxWindow*) { return d; }
+    static wxSize ToDIP(const wxSize& sz, const wxWindow*) { return sz; }
+    static wxPoint ToDIP(const wxPoint& pt, const wxWindow*) { return pt; }
     int ToDIP(int d) const { return d; }
+    wxSize ToDIP(const wxSize& sz) const { return sz; }
 
     virtual void SetFocus() {}
     bool HasFocus() const { return false; }

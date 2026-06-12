@@ -18,6 +18,9 @@ class KICAD_API_SERVER { public: virtual ~KICAD_API_SERVER() = default; };
 #include <settings/settings_manager.h>
 #include <background_jobs_monitor.h>
 #include <notifications_manager.h>
+// Full definition of the (stubbed) BS::thread_pool — singleton.h only
+// forward-declares it, and InitPgm() below instantiates one
+#include <bs_thread_pool.hpp>
 
 // Global PGM_BASE pointer
 static PGM_BASE* s_pgm = nullptr;
@@ -139,6 +142,14 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
     }
 
     return true;
+}
+
+BS::priority_thread_pool& PGM_BASE::GetThreadPool()
+{
+    if( !m_singleton.m_ThreadPool )
+        m_singleton.m_ThreadPool = new BS::priority_thread_pool();
+
+    return *m_singleton.m_ThreadPool;
 }
 
 void PGM_BASE::Destroy()

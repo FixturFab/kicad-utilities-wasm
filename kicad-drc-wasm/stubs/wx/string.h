@@ -288,6 +288,10 @@ public:
     bool empty() const { return m_str.empty(); }
     bool IsEmpty() const { return m_str.empty(); }
     bool IsNull() const { return m_str.empty(); }
+    bool IsAscii() const {
+        for (unsigned char c : m_str) { if (c >= 0x80) return false; }
+        return true;
+    }
     void Empty() { m_str.clear(); }
     void Clear() { m_str.clear(); }
     void clear() { m_str.clear(); }

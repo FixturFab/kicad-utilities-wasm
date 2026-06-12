@@ -246,6 +246,14 @@
                     <input type="checkbox" id="include-silkscreen">
                     Silkscreen
                 </label>
+                <label title="Subtract silkscreen from the board body as real engraved recesses (OCCT boolean, slower)">
+                    <input type="checkbox" id="engrave-silkscreen" disabled>
+                    Engrave
+                </label>
+                <label title="Engraving depth in millimetres">
+                    <input type="number" id="engrave-depth" value="0.1" min="0.02" max="1" step="0.02" style="width: 4.5em;" disabled>
+                    mm
+                </label>
             </div>
 
             <div class="btn-group">
@@ -289,7 +297,9 @@
         import * as THREE from 'three';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
         import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-        import { MATERIAL_PRESETS, materialParamsForPreset, classifyMeshRole } from './materials.mjs';
+        import {
+            MATERIAL_PRESETS, materialParamsForPreset, classifyMeshRole, isEngravingFaceColor,
+        } from './materials.mjs';
 
         // ── State ──
         let Module = null;
@@ -335,6 +345,16 @@
         const includeTracksCb = document.getElementById('include-tracks');
         const includeZonesCb = document.getElementById('include-zones');
         const includeSilkscreenCb = document.getElementById('include-silkscreen');
+        const engraveSilkscreenCb = document.getElementById('engrave-silkscreen');
+        const engraveDepthInput = document.getElementById('engrave-depth');
+
+        function syncEngraveControls() {
+            engraveSilkscreenCb.disabled = !includeSilkscreenCb.checked;
+            if (!includeSilkscreenCb.checked) engraveSilkscreenCb.checked = false;
+            engraveDepthInput.disabled = engraveSilkscreenCb.disabled || !engraveSilkscreenCb.checked;
+        }
+        includeSilkscreenCb.addEventListener('change', syncEngraveControls);
+        engraveSilkscreenCb.addEventListener('change', syncEngraveControls);
         const includeComponentsCb = document.getElementById('include-components');
         const materialSelect = document.getElementById('material-select');
 
@@ -368,6 +388,11 @@
                 mat.transmission = p.transmission;
                 mat.ior = p.ior;
                 mat.thickness = p.thickness;
+            }
+            if (p.polygonOffset) {
+                mat.polygonOffset = true;
+                mat.polygonOffsetFactor = -1;
+                mat.polygonOffsetUnits = -1;
             }
             return mat;
         }
@@ -415,7 +440,7 @@
         });
 
         // ── Version banner ──
-        const DEMO_VERSION = '2026-03-06-single-thread';
+        const DEMO_VERSION = '2026-06-12-engrave';
         console.log(`%c[KiCad WASM Demo] v${DEMO_VERSION}`, 'color: #2d8a4e; font-weight: bold; font-size: 14px');
         console.log(`[KiCad WASM Demo] Native STEP export via OCCT 7.6.3 + DRC/ERC config API`);
 
@@ -769,15 +794,19 @@
                     if (pos[i] > zMax) zMax = pos[i];
                 }
                 const role = classifyMeshRole({ name: mesh.name, thicknessZ: zMax - zMin });
-                return { zMin, zMax, role };
+                // Standalone engraving plug products (marker-colored solids
+                // from the WASM engrave post-process)
+                const isPlug = role === 'body' && isEngravingFaceColor(mesh.color);
+                return { zMin, zMax, role, isPlug };
             });
             let board = null;
             for (const info of meshInfo) {
+                if (info.isPlug) continue;
                 if (!board || (info.zMax - info.zMin) > (board.zMax - board.zMin)) board = info;
             }
 
             for (const [meshIdx, mesh] of occtResult.meshes.entries()) {
-                const { zMin: meshZMin, role } = meshInfo[meshIdx];
+                const { zMin: meshZMin, role, isPlug } = meshInfo[meshIdx];
                 // Silk gets re-homed onto the nearest board face; the exact
                 // depth (sunk vs proud) is preset-dependent
                 let engraveData = null;
@@ -855,9 +884,14 @@
                     }
                     geom.setIndex(newIndices);
 
-                    const threeMesh = new THREE.Mesh(geom, makeMaterial(currentPreset, grp.color, role));
+                    // Face groups painted with the engrave marker color are
+                    // recesses cut into the solid — style them as engraving
+                    // but never reposition them (they ARE the body surface)
+                    const grpRole = isPlug ? 'engraving-plug'
+                        : (role === 'body' && isEngravingFaceColor(grp.color) ? 'engraving' : role);
+                    const threeMesh = new THREE.Mesh(geom, makeMaterial(currentPreset, grp.color, grpRole));
                     threeMesh.userData.faceColor = grp.color;
-                    threeMesh.userData.role = role;
+                    threeMesh.userData.role = grpRole;
                     if (engraveData) {
                         Object.assign(threeMesh.userData, engraveData);
                         threeMesh.position.z = engravingPositionZ(currentPreset, threeMesh.userData);
@@ -986,6 +1020,9 @@
                 export_zones: includeZonesCb.checked,
                 export_inner_copper: includeTracksCb.checked || includeZonesCb.checked,
                 export_silkscreen: includeSilkscreenCb.checked,
+                ...(includeSilkscreenCb.checked && engraveSilkscreenCb.checked
+                    ? { engrave_depth_mm: Math.max(0.02, parseFloat(engraveDepthInput.value) || 0.1) }
+                    : {}),
                 cut_vias_in_body: true,
                 ...(withComponents ? { model_dir: '/models' } : {}),
             });

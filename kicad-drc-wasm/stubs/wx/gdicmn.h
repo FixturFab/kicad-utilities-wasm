@@ -220,7 +220,17 @@ public:
     unsigned char* GetData() const { return nullptr; }
     bool HasAlpha() const { return false; }
     unsigned char* GetAlpha() const { return nullptr; }
+    unsigned char GetAlpha(int, int) const { return 255; }
     void SetAlpha(unsigned char* = nullptr) {}
+    unsigned char GetRed(int, int) const { return 0; }
+    unsigned char GetGreen(int, int) const { return 0; }
+    unsigned char GetBlue(int, int) const { return 0; }
+    bool HasMask() const { return false; }
+    bool IsSameAs(const wxImage&) const { return false; }
+    int GetType() const { return 0; }
+    unsigned char GetMaskRed() const { return 0; }
+    unsigned char GetMaskGreen() const { return 0; }
+    unsigned char GetMaskBlue() const { return 0; }
     wxImage Copy() const { return wxImage(); }
     wxImage Scale(int w, int h, int quality = 0) const { return wxImage(); }
     wxImage Rescale(int w, int h, int quality = 0) { return *this; }

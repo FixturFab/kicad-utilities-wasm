@@ -1,11 +1,20 @@
 #pragma once
 
 #include "string.h"
+#include "file.h"
 #include <cstdio>
 #include <cstring>
 
 typedef long long wxFileOffset;
 #define wxInvalidOffset ((wxFileOffset)-1)
+
+// Matches fseek() whence values (SEEK_SET/SEEK_CUR/SEEK_END), like real wx
+enum wxSeekMode
+{
+    wxFromStart,
+    wxFromCurrent,
+    wxFromEnd,
+};
 
 class wxStreamBase
 {
@@ -35,11 +44,24 @@ class wxOutputStream : public wxStreamBase
 public:
     virtual ~wxOutputStream() = default;
     virtual wxOutputStream& Write(const void* buffer, size_t size) { return *this; }
+    inline wxOutputStream& Write(wxInputStream& in);
     virtual size_t LastWrite() const { return 0; }
     virtual void Sync() {}
     virtual size_t OnSysWrite(const void*, size_t) { return 0; }
     void PutC(char c) { Write(&c, 1); }
 };
+
+// Out-of-line: copy an entire input stream into this output stream
+inline wxOutputStream& wxOutputStream::Write(wxInputStream& in) {
+    char buf[4096];
+    while(!in.Eof()) {
+        in.Read(buf, sizeof(buf));
+        size_t n = in.LastRead();
+        if(n > 0) Write(buf, n);
+        else break;
+    }
+    return *this;
+}
 
 // Out-of-line definition of Read(wxOutputStream&) — needs wxOutputStream to be complete
 inline wxInputStream& wxInputStream::Read(wxOutputStream& stream_out) {
@@ -85,6 +107,8 @@ class wxMemoryOutputStream : public wxOutputStream
 {
 public:
     wxMemoryOutputStream() = default;
+    // (data, size-hint) variant: nullptr data = stream owns the memory
+    wxMemoryOutputStream(void*, size_t) {}
     wxOutputStream& Write(const void* buffer, size_t size) override {
         m_data.append((const char*)buffer, size);
         return *this;
@@ -227,7 +251,9 @@ public:
         m_fp = fopen(filename.c_str(), mode);
     }
     wxFFileOutputStream(FILE* fp) : m_fp(fp) {}
-    ~wxFFileOutputStream() { if(m_fp) fclose(m_fp); }
+    // Borrow the wxFFile's handle — caller keeps ownership
+    wxFFileOutputStream(wxFFile& file) : m_fp(file.fp()), m_owns(false) {}
+    ~wxFFileOutputStream() { if(m_fp && m_owns) fclose(m_fp); }
     bool IsOk() const override { return m_fp != nullptr; }
     wxOutputStream& Write(const void* buffer, size_t size) override {
         if(m_fp) fwrite(buffer, 1, size, m_fp);
@@ -239,6 +265,7 @@ public:
     }
 private:
     FILE* m_fp = nullptr;
+    bool m_owns = true;
 };
 
 class wxBufferedInputStream : public wxInputStream
@@ -250,6 +277,19 @@ public:
     bool Eof() const override { return m_stream.Eof(); }
 private:
     wxInputStream& m_stream;
+};
+
+class wxDataOutputStream
+{
+public:
+    wxDataOutputStream(wxOutputStream& s) : m_stream(s) {}
+    void Write8(unsigned char v) { m_stream.Write(&v, 1); }
+    void Write8(const unsigned char* buf, size_t size) { if (buf) m_stream.Write(buf, size); }
+    void Write16(unsigned short v) { m_stream.Write(&v, 2); }
+    void Write32(unsigned int v) { m_stream.Write(&v, 4); }
+    void BigEndianOrdered(bool) {}
+private:
+    wxOutputStream& m_stream;
 };
 
 class wxStreamBuffer
@@ -265,6 +305,7 @@ public:
     void* GetBufferStart() const { return nullptr; }
     void* GetBufferEnd() const { return nullptr; }
     void* GetBufferPos() const { return nullptr; }
+    wxFileOffset Tell() const { return 0; }
     size_t GetBufferSize() const { return 0; }
     size_t GetDataLeft() const { return 0; }
     void ResetBuffer() {}

@@ -41,3 +41,43 @@ wxString EXPORTER_STEP_PARAMS::GetFormatName() const
     default:                                  return wxEmptyString;
     }
 }
+
+// ── PDF outline font stubs ──────────────────────────────────────────────
+// pdf_outline_font.cpp needs real FreeType/HarfBuzz, which the WASM build
+// doesn't carry. The 3D-PDF export path that uses these is unreachable
+// (we only request FORMAT::STEP), so no-op definitions satisfy the linker.
+#include <plotters/pdf_outline_font.h>
+
+PDF_OUTLINE_FONT_SUBSET::PDF_OUTLINE_FONT_SUBSET( KIFONT::OUTLINE_FONT*, unsigned ) {}
+uint16_t PDF_OUTLINE_FONT_SUBSET::EnsureGlyph( uint32_t, const std::u32string& ) { return 0; }
+bool PDF_OUTLINE_FONT_SUBSET::HasGlyphs() const { return false; }
+const std::vector<uint8_t>& PDF_OUTLINE_FONT_SUBSET::FontFileData()
+{
+    static const std::vector<uint8_t> s_empty;
+    return s_empty;
+}
+std::string PDF_OUTLINE_FONT_SUBSET::BuildWidthsArray() const { return {}; }
+std::string PDF_OUTLINE_FONT_SUBSET::BuildToUnicodeCMap() const { return {}; }
+std::string PDF_OUTLINE_FONT_SUBSET::BuildCIDToGIDStream() const { return {}; }
+bool PDF_OUTLINE_FONT_SUBSET::GLYPH_KEY::operator<( const GLYPH_KEY& ) const { return false; }
+
+PDF_OUTLINE_FONT_MANAGER::PDF_OUTLINE_FONT_MANAGER() {}
+void PDF_OUTLINE_FONT_MANAGER::Reset() {}
+void PDF_OUTLINE_FONT_MANAGER::EncodeString( const wxString&, KIFONT::OUTLINE_FONT*, bool, bool,
+                                             std::vector<PDF_OUTLINE_FONT_RUN>* ) {}
+std::vector<PDF_OUTLINE_FONT_SUBSET*> PDF_OUTLINE_FONT_MANAGER::AllSubsets() const { return {}; }
+
+// ── U3D writer stubs ────────────────────────────────────────────────────
+// The U3D/PDF export path is unreachable in the WASM build (we only request
+// FORMAT::STEP), but exporter_step.cpp references the writer, so satisfy
+// the linker with no-op definitions.
+#include <exporters/u3d/writer.h>
+
+U3D::WRITER::WRITER( const std::string& )
+{
+}
+
+bool U3D::WRITER::Perform( const Handle( TDocStd_Document ) & )
+{
+    return false;
+}

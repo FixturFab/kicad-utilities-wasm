@@ -19,6 +19,9 @@ This project compiles KiCad's validation and export tools to WebAssembly, enabli
 ### STEP Export
 - **3D STEP model generation** from PCB layouts using OCCT
 - **Board geometry extraction** — stackup, drill holes, component positions
+- **Silkscreen engraving** — `engrave_depth_mm` boolean-subtracts the silkscreen
+  from the board body as real recesses (for laser-engraved panel previews); the
+  removed volumes are kept as marker-colored `ENGRAVING` products
 
 ### Specctra DSN/SES
 - **DSN export** for autorouter integration
@@ -134,11 +137,17 @@ Results follow the [KiCad DRC JSON schema](https://schemas.kicad.org/drc.v1.json
 ### Steps
 
 ```bash
-# 1. Clone KiCad source (if not already present)
-git clone --depth 1 --branch 9.0 https://gitlab.com/kicad/code/kicad.git kicad-src
+# 1. Clone KiCad source — NOTE: master pinned near 2026-03-06, NOT the 9.0
+#    stable branch (the port tracks master-only files like layer_utils.cpp)
+git clone --shallow-since=2026-02-15 https://gitlab.com/kicad/code/kicad.git kicad-src
+git -C kicad-src checkout $(git -C kicad-src rev-list -1 --before="2026-03-07" origin/master)
 
-# 2. Build KiCad natively first (needed for generated headers)
-cmake -S kicad-src -B kicad-src/build/release -DCMAKE_BUILD_TYPE=Release
+# 2. Build KiCad natively first (needed for generated headers).
+#    KICAD_USE_CMAKE_FINDPROTOBUF works around Ubuntu's protobuf packages
+#    lacking CMake config files.
+cmake -S kicad-src -B kicad-src/build/release -DCMAKE_BUILD_TYPE=Release \
+      -DKICAD_USE_CMAKE_FINDPROTOBUF=ON -DKICAD_BUILD_QA_TESTS=OFF \
+      -DKICAD_SCRIPTING_WXPYTHON=OFF
 cmake --build kicad-src/build/release -j$(nproc)
 
 # 3. Install and activate Emscripten
@@ -146,11 +155,15 @@ git clone https://github.com/emscripten-core/emsdk.git
 cd emsdk && ./emsdk install 5.0.0 && ./emsdk activate 5.0.0
 source emsdk_env.sh && cd ..
 
-# 4. Configure WASM build
-emcmake cmake -S kicad-drc-wasm -B kicad-drc-wasm/build-wasm
+# 4. Download OCCT 7.6.3 source (compiled into the WASM build for STEP export)
+git clone --depth 1 --branch V7_6_3 https://github.com/Open-Cascade-SAS/OCCT.git \
+    kicad-drc-wasm/thirdparty/occt-7.6.3
 
-# 5. Build
-cmake --build kicad-drc-wasm/build-wasm -j$(nproc)
+# 5. Configure WASM build (build-wasm-erc is the directory the node tests use)
+emcmake cmake -S kicad-drc-wasm -B kicad-drc-wasm/build-wasm-erc
+
+# 6. Build (8GB+ RAM or swap recommended for the LTO link)
+cmake --build kicad-drc-wasm/build-wasm-erc -j$(nproc)
 ```
 
 Output files:

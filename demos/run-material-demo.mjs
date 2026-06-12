@@ -59,7 +59,8 @@ await page.click('#use-sample');
 // Step 2: generate STEP in WASM
 await page.waitForFunction(() => !document.getElementById('generate-step-2').disabled, { timeout: 60_000 });
 await page.check('#include-silkscreen');
-await shot('02-generate', 'Step 2: Generate STEP', 'KiCad’s real STEP exporter (OCCT 7.6.3) runs in WebAssembly — silkscreen included for engraving.', '#generate-step-2', 'click');
+await page.check('#engrave-silkscreen');
+await shot('02-generate', 'Step 2: Generate STEP', 'Silkscreen + Engrave checked: OCCT boolean-cuts the marks 0.1mm into the board — the STEP gets real recesses.', '#generate-step-2', 'click');
 await page.click('#generate-step-2');
 await page.waitForFunction(() => document.getElementById('generate-step-2').textContent.startsWith('Done'), { timeout: 300_000 });
 await page.evaluate(() => document.getElementById('viewer-container').scrollIntoView({ block: 'center', behavior: 'instant' }));

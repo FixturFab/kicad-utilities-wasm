@@ -895,6 +895,8 @@ const char* kicad_get_pcb_geometry( void )
 #include <filename_resolver.h>
 #include <common.h>
 
+#include "step_engrave.h"
+
 static std::string g_step_result;
 static const wxString g_model_virtual_dir = wxS( "/models/" );
 
@@ -962,6 +964,8 @@ const char* kicad_export_step( const char* options_json )
     ensure_pgm_initialized();
     g_step_result.clear();
 
+    double engraveDepthMm = 0.0;
+
     EXPORTER_STEP_PARAMS params;
     params.m_Format = EXPORTER_STEP_PARAMS::FORMAT::STEP;
     params.m_ExportBoardBody = true;
@@ -998,6 +1002,11 @@ const char* kicad_export_step( const char* options_json )
 
             if( opts.contains( "export_silkscreen" ) )
                 params.m_ExportSilkscreen = opts["export_silkscreen"].get<bool>();
+
+            // Subtract silkscreen from the board body as engraved recesses
+            // (requires export_silkscreen; runs as an OCCT post-process)
+            if( opts.contains( "engrave_depth_mm" ) )
+                engraveDepthMm = opts["engrave_depth_mm"].get<double>();
 
             if( opts.contains( "export_soldermask" ) )
                 params.m_ExportSoldermask = opts["export_soldermask"].get<bool>();
@@ -1083,6 +1092,12 @@ const char* kicad_export_step( const char* options_json )
         }
 
         fprintf( stderr, "[STEP] Export() returned true, reading output...\n" );
+
+        if( engraveDepthMm > 0 )
+        {
+            if( !EngraveStepInPlace( (const char*) outputPath.c_str(), engraveDepthMm ) )
+                fprintf( stderr, "[STEP] engrave post-process failed; returning unengraved STEP\n" );
+        }
 
         // Read the STEP file back from virtual FS
         std::ifstream ifs( (const char*)outputPath.c_str() );

@@ -55,7 +55,7 @@ wxString SYMBOL_LIBRARY_ADAPTER::GlobalPathEnvVariableName()
 bool SYMBOL_LIBRARY_ADAPTER::SupportsConfigurationDialog( const wxString& ) const { return false; }
 void SYMBOL_LIBRARY_ADAPTER::ShowConfigurationDialog( const wxString&, wxWindow* ) const {}
 
-void SYMBOL_LIBRARY_ADAPTER::enumerateLibrary( LIB_DATA* ) {}
+void SYMBOL_LIBRARY_ADAPTER::enumerateLibrary( LIB_DATA*, const wxString& ) {}
 
 LIBRARY_RESULT<IO_BASE*> SYMBOL_LIBRARY_ADAPTER::createPlugin( const LIBRARY_TABLE_ROW* )
 {

@@ -7,7 +7,7 @@ class wxPGChoiceEntry
 public:
     wxPGChoiceEntry() = default;
     wxPGChoiceEntry(const wxString& label, int value = 0) : m_label(label), m_value(value) {}
-    wxString GetText() const { return m_label; }
+    const wxString& GetText() const { return m_label; }
     int GetValue() const { return m_value; }
 private:
     wxString m_label;
@@ -28,7 +28,11 @@ public:
     const wxPGChoiceEntry& Item(size_t i) const { return m_entries[i]; }
     bool IsOk() const { return !m_entries.empty(); }
     void Clear() { m_entries.clear(); }
-    wxString GetLabel(size_t i) const { return i < m_entries.size() ? m_entries[i].GetText() : wxString(); }
+    // const-ref like real wx: callers return this reference onward
+    const wxString& GetLabel(size_t i) const {
+        static const wxString s_empty;
+        return i < m_entries.size() ? m_entries[i].GetText() : s_empty;
+    }
     int GetValue(size_t i) const { return i < m_entries.size() ? m_entries[i].GetValue() : 0; }
     int Index(int value) const {
         for(size_t i = 0; i < m_entries.size(); i++)

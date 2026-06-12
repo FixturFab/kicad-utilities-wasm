@@ -40,6 +40,7 @@ if(EMSCRIPTEN)
         ${KICAD_BUILD}/api/cpp/api
         ${KICAD_SRC}/thirdparty/pegtl
         ${KICAD_SRC}/thirdparty/magic_enum/magic_enum
+        ${KICAD_SRC}/thirdparty/glad/include
         ${KICAD_SRC}/thirdparty/libcontext
         ${KICAD_SRC}/libs/kimath/include
         ${KICAD_SRC}/thirdparty/clipper2/Clipper2Lib/include
@@ -116,6 +117,9 @@ if(EMSCRIPTEN)
     list(APPEND KICAD_INCLUDE_DIRS ${OCCT_INCLUDE_DIRS})
 
     # ── OCCT boolean test (Stage 2f validation) ──────────────────────────
+    # Scaffolding from the original port; the source was never committed,
+    # so only build it when present in the working tree.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/occt_boolean_test.cpp")
     add_executable(occt_boolean_test
         test/occt_boolean_test.cpp
     )
@@ -147,6 +151,7 @@ if(EMSCRIPTEN)
             -sEXPORTED_RUNTIME_METHODS=[\"callMain\"] \
         "
     )
+    endif() # occt_boolean_test.cpp exists
 
     # ── OCCT STEP write test (Stage 3e validation) ──────────────────────
     add_executable(occt_step_write_test
@@ -418,6 +423,7 @@ if(EMSCRIPTEN)
         # App monitor (can be minimal)
         ${KICAD_SRC}/common/app_monitor.cpp
         # Core data model (needed by DRC transitively)
+        ${KICAD_SRC}/common/inspectable.cpp
         ${KICAD_SRC}/common/eda_item.cpp
         ${KICAD_SRC}/common/eda_shape.cpp
         ${KICAD_SRC}/common/eda_text.cpp
@@ -692,6 +698,14 @@ if(EMSCRIPTEN)
         ${KICAD_SRC}/pcbnew/exporters/step/KI_XCAFDoc_AssemblyGraph.cxx
         # Dependencies needed by the STEP exporter
         ${KICAD_SRC}/common/filename_resolver.cpp
+        # Plotter stack: step_pcb_model's (unreachable) 3D-PDF path
+        # references PDF_PLOTTER, so its real definitions must link
+        ${KICAD_SRC}/common/plotters/plotter.cpp
+        ${KICAD_SRC}/common/plotters/PS_plotter.cpp
+        ${KICAD_SRC}/common/plotters/PDF_plotter.cpp
+        ${KICAD_SRC}/common/plotters/pdf_stroke_font.cpp
+        # NOT pdf_outline_font.cpp — needs real FreeType/HarfBuzz; the PDF
+        # path is unreachable in WASM, its symbols are stubbed instead
         # Stubs for EXPORTER_STEP_PARAMS methods + U3D/PDF exclusion
         ${CMAKE_CURRENT_SOURCE_DIR}/src/step_export_stubs.cpp
         # NOTE: streamwrapper.cpp is Windows+GCC only (#error guard), not needed
@@ -704,6 +718,8 @@ if(EMSCRIPTEN)
         ${KICAD_FORCE_INCLUDE_FLAGS}
         -U__linux__
         -sUSE_ZLIB=1
+        # property.h template instantiation trips this warning under -Werror
+        -Wno-return-stack-address
     )
     target_link_libraries(step_exporter_wasm PUBLIC pcbcommon_wasm ${OCCT_LIBRARIES})
 
@@ -815,6 +831,7 @@ if(EMSCRIPTEN)
     # ── Final WASM executable ───────────────────────────────────────────────
     add_executable(kicad_drc
         src/api.cpp
+        src/step_engrave.cpp
         src/diag_main.cpp
     )
 
@@ -895,6 +912,7 @@ else()
         ${KICAD_BUILD}/api/cpp/api
         ${KICAD_SRC}/thirdparty/pegtl
         ${KICAD_SRC}/thirdparty/magic_enum/magic_enum
+        ${KICAD_SRC}/thirdparty/glad/include
         ${KICAD_SRC}/thirdparty/libcontext
         ${KICAD_SRC}/libs/kimath/include
         ${KICAD_SRC}/thirdparty/clipper2/Clipper2Lib/include
